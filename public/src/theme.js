@@ -22,8 +22,8 @@ export const FACTIONS = {
     accent: '#d8342a',
     cards: {
       general: 'cards/soviet/general.png',
-      advisor: 'cards/soviet/advisor.png',
-      elephant: 'cards/soviet/elephant.png', // 素材缺失，暂用"战术撤退"
+      advisor: 'cards/soviet/advisor.png', // 近卫步兵第 272 团
+      elephant: 'cards/soviet/elephant.png', // 战术撤退
       horse: 'cards/soviet/horse.png',
       chariot: 'cards/soviet/chariot.png',
       cannon: 'cards/soviet/cannon.png',

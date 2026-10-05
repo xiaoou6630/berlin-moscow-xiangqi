@@ -14,16 +14,16 @@ SRC_SOV = ROOT / "art" / "soviet"
 SRC_GER = ROOT / "art" / "germany"
 OUT = ROOT / "public" / "assets"
 
-# 角色 → 素材文件名
+# 角色 → 素材文件名（每边 7 个单位，正好对应 7 种棋子）
 SOV = {
     "general": "莫斯科_默认.png",
     "pawn": "步兵第 554 团_zh-Hans.png",
     "cannon": "喀秋莎_zh-Hans.png",
     "chariot": "IS-2_zh-Hans.png",
     "horse": "库班哥萨克第 4 团_zh-Hans.png",
-    # 士/仕：近卫步兵第 272 团（素材放在"德国"目录里，但这是苏联单位）
+    # 士：近卫步兵第 272 团（文件放在 art/germany 里，但它是苏联单位）
     "advisor": "近卫步兵第 272 团_zh-Hans.png",
-    "elephant": "战术撤退_zh-Hans.png",  # 相/象：苏联暂时没有专属图
+    "elephant": "战术撤退_zh-Hans.png",
 }
 GER = {
     "general": "阿登_默认.png",
