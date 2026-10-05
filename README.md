@@ -85,8 +85,14 @@ npm run test:pages        # GitHub Pages 子路径部署形态
 
 ## 素材与版权
 
-棋子卡面、头像与背景底图来自游戏 **KARDS**（1939 Games），版权归 1939 Games 所有，
-本项目是非商业的爱好者作品。
+**Berlin vs Moscow Xiangqi** was created under 1939 Games' "Community content policy"
+policy using assets owned by 1939 Games. 1939 Games does not endorse or sponsor this project.
+
+棋子卡面、头像与背景底图来自游戏 **KARDS**（1939 Games），版权归 1939 Games 所有。
+本项目是**非商业**的爱好者作品：不含广告、不收费、无任何付费墙。
+象棋引擎、棋盘绘制、局域网联机均为原创实现，仅卡面作为皮肤使用。
 
 **代码**以 MIT 许可发布（见 `LICENSE`）。美术素材**不在** MIT 范围内，
-使用者需自行确认是否符合 KARDS 的社区使用条款。
+其使用遵循 1939 Games 的
+[KARDS Community License](https://support.kards.com/hc/en-us/articles/360027838532-KARDS-Community-License)。
+该许可可被 1939 Games 随时撤销；若被要求，本项目将立即下架。

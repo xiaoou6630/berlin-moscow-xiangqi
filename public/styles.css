@@ -335,6 +335,33 @@ body {
 
 .banner[hidden] { display: none; }
 
+/* ---------------- 版权声明（1939 Games 社区许可第 6 条要求显著展示）---------------- */
+
+.notice {
+  position: fixed;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  z-index: 12;
+  max-width: min(920px, 94vw);
+  padding: 5px 14px;
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: center;
+  letter-spacing: 0.02em;
+  color: rgba(233, 228, 214, 0.62);
+  background: rgba(6, 9, 12, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+}
+
+.notice b { color: rgba(233, 228, 214, 0.86); font-weight: 600; }
+
+/* 菜单遮罩盖在上面时声明也要看得见（社区许可要求显著展示） */
+.overlay { padding-bottom: 46px; }
+
 .hint { margin: 14px 0 0; color: var(--ink-dim); font-size: 12px; letter-spacing: 0.1em; min-height: 18px; }
 
 /* ---------------- 结算 ---------------- */
