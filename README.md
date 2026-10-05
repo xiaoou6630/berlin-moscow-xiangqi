@@ -25,13 +25,16 @@ KARDS 风格的中国象棋。棋盘按标准规格绘制（9 路 × 10 线 = 90
 npm start
 ```
 
-零依赖（只用 Node 内置模块）。终端会打印本机局域网地址，同一 WiFi 下的
-手机/电脑打开即可联机。
+零依赖（只用 Node 内置模块）。`npm start` 会先构建再起服务，
+终端会打印本机局域网地址，同一 WiFi 下的手机/电脑打开即可联机。
+
+改完 `public/` 里的东西想跳过构建直接看效果，用 `npm run dev`。
 
 > **局域网对战需要本机跑 Node。** 在线版是静态托管，没有后端，所以联机选项
 > 会自动禁用，只有单人和两人同机可用。
 
 ```bash
+npm run build    # 组装到 build/（纯复制，无打包/转译）
 npm run assets   # 改了 art/ 里的素材后重新生成 public/assets/（需要 Python + Pillow）
 ```
 
@@ -68,7 +71,7 @@ tools/            构建与测试
 ## 测试
 
 ```bash
-npm test                  # 几何 + 渲染 + 引擎 + 服务端健壮性
+npm test                  # 入口页 + 几何 + 渲染 + 引擎 + 构建产物 + 服务端
 npm run test:lan          # 局域网协议
 npm run test:browser      # 真浏览器：单人 / 两人同机
 npm run test:browser:lan  # 真浏览器：双页面对战
@@ -80,8 +83,26 @@ npm run test:pages        # GitHub Pages 子路径部署形态
 
 ## 部署
 
+### GitHub Pages
+
 仓库自带 `.github/workflows/deploy-pages.yml`，推到 `main` 自动发布到 Pages。
-纯静态、**无构建步骤**。首次需要在 Settings → Pages → Source 选 GitHub Actions。
+纯静态、**无构建步骤**，直接把仓库原样发布。首次需要在
+Settings → Pages → Source 选 GitHub Actions。
+
+### 其他静态托管 / 第三方编译平台
+
+这类平台（Docker 构建等）通常假定 `npm install` 后会产出 `build/`，
+所以 `package.json` 里挂了 `postinstall: npm run build`，
+也可以用 `npm run build` 手动产出。`build/` 就是仓库根的一份副本：
+
+```
+build/index.html     入口页
+build/public/        网页、样式、脚本、美术素材
+build/src/           共享引擎
+build/.nojekyll
+```
+
+**美术素材必须一起提交**，否则产物会缺图 —— `npm run test:build` 会校验这一点。
 
 ## 素材与版权
 

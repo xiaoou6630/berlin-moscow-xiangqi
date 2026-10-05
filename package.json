@@ -9,12 +9,15 @@
     "#shared/*": "./src/*"
   },
   "scripts": {
-    "start": "node server/server.js",
+    "build": "node tools/build.js",
+    "postinstall": "node tools/build.js",
+    "start": "node tools/build.js && node server/server.js",
     "dev": "node server/server.js",
     "assets": "python tools/build-assets.py",
     "shot": "node tools/screenshot.js",
-    "test": "node tools/check-index.js && node tools/test-geometry.js && node tools/test-dom.js && node tools/test-engine.js && node tools/test-server.js",
+    "test": "node tools/check-index.js && node tools/test-geometry.js && node tools/test-dom.js && node tools/test-engine.js && node tools/test-build.js && node tools/test-server.js",
     "test:index": "node tools/check-index.js",
+    "test:build": "node tools/test-build.js",
     "test:geometry": "node tools/test-geometry.js",
     "test:dom": "node tools/test-dom.js",
     "test:engine": "node tools/test-engine.js",

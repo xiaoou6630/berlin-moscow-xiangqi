@@ -9,8 +9,10 @@
  * 运行：node tools/test-pages.js
  */
 import { createServer } from 'node:http';
-import { createReadStream, statSync, mkdtempSync, rmSync, cpSync, readFileSync, writeFileSync } from 'node:fs';
-import { extname, join, resolve, sep } from 'node:path';
+import {
+  createReadStream, statSync, mkdtempSync, rmSync, readdirSync, mkdirSync, copyFileSync, existsSync,
+} from 'node:fs';
+import { dirname, extname, join, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 
@@ -44,22 +46,28 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /* ---------------- 1. 搭一个 Pages 形态的站点 ---------------- */
 const site = mkdtempSync(join(tmpdir(), 'pages-'));
 const siteRoot = join(site, REPO);
-// ⚠️ 不要用 node 的 fs.cpSync 复制目录：在本机 Windows + Node 24 上
-//    复制 public/ 会让进程直接崩掉（STATUS_STACK_BUFFER_OVERRUN，无任何报错），
-//    所以改用 PowerShell 的 Copy-Item。
-const copyScript = [
-  `$ErrorActionPreference='Stop'`,
-  `New-Item -ItemType Directory -Force -Path '${siteRoot}' | Out-Null`,
-  ...['index.html', 'public', 'src', 'README.md'].map((item) => {
-    const src = join(ROOT, item);
-    return `if (Test-Path -LiteralPath '${src}') { Copy-Item -LiteralPath '${src}' -Destination '${siteRoot}' -Recurse -Force }`;
-  }),
-].join('; ');
-const { spawnSync } = await import('node:child_process');
-const cp = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', copyScript], { encoding: 'utf8' });
-if (cp.status !== 0) {
-  console.error('复制站点失败:', cp.stderr?.slice(0, 400));
-  process.exit(1);
+
+/**
+ * 自己实现递归复制。
+ * ⚠️ 不要用 node 的 fs.cpSync：本机 Windows + Node 24 上复制 public/ 会让进程
+ * 直接崩掉（exit code -1073740791 = STATUS_STACK_BUFFER_OVERRUN，无任何报错）。
+ * tools/build.js 里也是同样的手写实现。
+ */
+function copyTree(src, dst) {
+  const st = statSync(src);
+  if (st.isDirectory()) {
+    mkdirSync(dst, { recursive: true });
+    for (const name of readdirSync(src)) copyTree(join(src, name), join(dst, name));
+    return;
+  }
+  mkdirSync(dirname(dst), { recursive: true });
+  copyFileSync(src, dst);
+}
+
+mkdirSync(siteRoot, { recursive: true });
+for (const item of ['index.html', 'public', 'src', 'README.md']) {
+  const src = join(ROOT, item);
+  if (existsSync(src)) copyTree(src, join(siteRoot, item));
 }
 console.log(`  （临时站点: ${siteRoot}）`);
 
@@ -261,5 +269,3 @@ try {
 }
 
 console.log(`\n${passed} 项通过${failures.length ? `，${failures.length} 项失败` : '，全部通过'}`);
-void readFileSync;
-void writeFileSync;

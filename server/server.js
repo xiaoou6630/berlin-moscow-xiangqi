@@ -3,7 +3,7 @@
  * 零依赖：直接跑 `npm start` 即可。
  */
 import { createServer } from 'node:http';
-import { createReadStream, statSync } from 'node:fs';
+import { createReadStream, existsSync, statSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,8 +14,21 @@ import { RoomStore } from './rooms.js';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const ROOT = resolve(__dirname, '..');
 
-const PUBLIC_DIR = join(ROOT, 'public');
-const SRC_DIR = join(ROOT, 'src');
+/**
+ * 站点根。
+ *
+ * 仓库根就是站点根（index.html 在根，站内资源在 public/ 与 src/），
+ * 所以 URL 能直接映射到磁盘，跟 GitHub Pages 的布局完全一致：
+ *   /                → <root>/index.html
+ *   /public/xxx      → <root>/public/xxx        （网页、样式、脚本、素材）
+ *   /src/engine/...  → <root>/src/engine/...     （共享引擎；先找 public/src 再回落）
+ *
+ * build/ 只是仓库根的一份副本（给第三方编译平台和 Pages 校验用），
+ * 内容是同一套，所以服务哪份都一样。
+ */
+const SITE_ROOT = ROOT;
+const PUBLIC_DIR = join(SITE_ROOT, 'public');
+const SRC_DIR = join(SITE_ROOT, 'src');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -32,25 +45,20 @@ const MIME = {
 };
 
 /**
- * 把 URL 路径映射到磁盘路径，并确保没有越出允许的根目录。
+ * 把 URL 路径映射到磁盘路径，并确保没有越出站点根。
  *
- * 完全镜像 GitHub Pages 的目录结构：
- *   Pages 上站点根是 /<repo>/，入口页在仓库根，靠 <base href="./public/"> 指到 public/。
- *   所以浏览器请求的实际是：
- *     /<repo>/public/styles.css      → public/styles.css
- *     /<repo>/public/src/main.js     → public/src/main.js   （页面脚本）
- *     /<repo>/src/engine/rules.js    → src/engine/rules.js  （共享引擎）
- *
- * 本地就照这个来：public/ 优先，/src/ 取不到再回落到仓库根的 src/。
+ * 与 GitHub Pages 的布局一一对应（见上面 SITE_ROOT 的说明），
+ * 所以本地看到的 URL 和线上完全一样。
  */
 function resolveTarget(urlPath) {
   const clean = decodeURIComponent(urlPath.split('?')[0].split('#')[0]);
-  const rel = normalize(clean).replace(/^([/\\])+/, '').replace(/^public[/\\]/, '');
+  const rel = normalize(clean).replace(/^([/\\])+/, '');
 
   const candidates = [
-    { base: PUBLIC_DIR, sub: rel === '' ? 'index.html' : rel },
-    // /src/... 先看 public/src（页面脚本），取不到再看根 src（引擎/几何）
-    rel.startsWith('src/') || rel.startsWith(`src${sep}`) ? { base: ROOT, sub: rel } : null,
+    // 站点根：/ → index.html，/public/... → public/...
+    { base: SITE_ROOT, sub: rel === '' ? 'index.html' : rel },
+    // /src/... 还要试一次仓库根的 src（引擎与几何放在那里）
+    /^src[/\\]/.test(rel) ? { base: ROOT, sub: rel } : null,
   ].filter(Boolean);
 
   for (const { base, sub } of candidates) {
