@@ -6,6 +6,31 @@
 
 const DEFAULT_PORT = 5173;
 
+/**
+ * 本机是否跑着 Node 服务器。
+ *
+ * 静态托管（GitHub Pages / 各种第三方编译站）上只有前端文件，
+ * /api/net 会 404，也就**根本不可能联机**。
+ * 界面必须据此把联机选项藏起来，否则会出现
+ * "http://xxx.github.io:5173/ 正在等待对手" 这种荒唐状态。
+ */
+let serverAvailable = null;
+
+export async function probeServer() {
+  if (serverAvailable !== null) return serverAvailable;
+  try {
+    const r = await fetch('/api/net', { cache: 'no-store' });
+    serverAvailable = r.ok;
+  } catch {
+    serverAvailable = false;
+  }
+  return serverAvailable;
+}
+
+export function isServerAvailable() {
+  return serverAvailable === true;
+}
+
 /** 当前页面所在的主机名（房主自己就是 host） */
 export function currentHost() {
   return location.hostname || '127.0.0.1';

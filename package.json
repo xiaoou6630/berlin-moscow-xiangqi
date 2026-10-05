@@ -5,6 +5,9 @@
   "type": "module",
   "description": "KARDS 风格的中国象棋：柏林 vs 莫斯科（标准 9 路 × 10 线棋盘 + 二战卡面棋子）",
   "main": "server/server.js",
+  "imports": {
+    "#shared/*": "./src/*"
+  },
   "scripts": {
     "start": "node server/server.js",
     "dev": "node server/server.js",

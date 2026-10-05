@@ -213,21 +213,40 @@ try {
     if (lum < 25) throw new Error(`该处过暗 (${px})，背景可能没画上`);
   });
 
-  await check('没有资源 404', async () => {
-    const bad = requested.filter((u) => !/\/$|\/index\.html$/.test(u));
+  await check('静态托管下联机选项被禁用并说明原因', async () => {
+    const info = await ev(`(() => {
+      const btns = [...document.querySelectorAll('#modeRow .level')].map((b) => ({
+        mode: b.dataset.mode, disabled: b.disabled,
+      }));
+      const note = document.getElementById('lanNote');
+      return { btns, noteShown: !note.hidden, note: note.textContent.slice(0, 30),
+               serverOk: window.__kards.state.serverOk, mode: window.__kards.state.mode };
+    })()`);
+    const lanBtns = info.btns.filter((b) => b.mode !== 'local');
+    if (lanBtns.some((b) => !b.disabled)) {
+      throw new Error(`联机按钮没被禁用: ${JSON.stringify(info.btns)}`);
+    }
+    if (!info.noteShown) throw new Error('没有显示"联机不可用"的说明');
+    if (info.mode !== 'local') throw new Error(`模式应停在 local，实际 ${info.mode}`);
+  });
+
+  await check('没有资源 404（/api/net 探测失败属预期）', async () => {
+    // /api/net 是服务器专属接口：静态托管上必然 404，
+    // 前端就是靠它判断"没有服务器、联机不可用"，不算错误。
+    const bad = requested.filter((u) => !/\/$|\/index\.html$/.test(u) && !/\/api\/net/.test(u));
     const missing = [];
     for (const u of new Set(bad)) {
       const r = await fetch(`http://127.0.0.1:${PORT}${u}`, { method: 'HEAD' }).catch(() => null);
       if (!r || r.status !== 200) missing.push(`${u} → ${r?.status ?? 'ERR'}`);
     }
     if (missing.length) {
-      console.error('  实际请求过的路径:', JSON.stringify([...new Set(requested)], null, 1).slice(0, 1500));
+      console.error('  实际请求过的路径:', JSON.stringify([...new Set(requested)], null, 1).slice(0, 1200));
       throw new Error(`有 ${missing.length} 个资源取不到:\n      ${missing.slice(0, 8).join('\n      ')}`);
     }
   });
 
-  await check('没有 JS 报错 / 请求失败', async () => {
-    const errs = consoleErrors.filter((e) => !/favicon/i.test(e));
+  await check('没有意外的 JS 报错 / 请求失败', async () => {
+    const errs = consoleErrors.filter((e) => !/favicon|\/api\/net|404/i.test(e));
     const fails = failedRequests.filter((f) => !/favicon/i.test(f));
     if (errs.length || fails.length) {
       throw new Error(`console: ${errs.slice(0, 3).join(' | ')}  请求失败: ${fails.slice(0, 3).join(' | ')}`);
