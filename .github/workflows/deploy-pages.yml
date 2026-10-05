@@ -1,0 +1,50 @@
+# GitHub Pages 部署。
+#
+# 这个项目是**纯静态**的：public/ 是站点、src/ 是共享引擎、
+# index.html 是入口页（靠 <base href="./public/"> 指到 public/）。
+# 所以不需要任何构建步骤 —— 直接把仓库原样发布出去即可。
+#
+# 注意：联机对战（局域网房间）需要 Node 服务器，Pages 上不可用，
+# 单人 / 两人同机完全正常。
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 组装站点
+        run: |
+          mkdir -p _site
+          # 入口页在仓库根，站内资源都在 public/ 与 src/
+          cp index.html _site/
+          cp -r public _site/
+          cp -r src _site/
+          # 关掉 Jekyll：否则它会忽略下划线开头的文件、并做多余的构建
+          touch _site/.nojekyll
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

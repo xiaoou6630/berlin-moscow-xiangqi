@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<!--
+  <base> 让页面里的相对路径（./styles.css、./src/main.js、./assets/...）
+  都以 public/ 为基准解析。
+  这样同一份 index.html 放在仓库根目录（GitHub Pages 要从根目录取入口页）
+  和放在 public/ 下（本地开发服务器）都能正确加载。
+  ⚠️ <base> 只影响 HTML 里的 URL，不影响 ES module 的静态 import，
+     所以 main.js 用的是静态 import 而不是 import()。
+-->
+<base href="./public/" />
+<title>中国象棋 · 柏林 vs 莫斯科</title>
+<!--
+  共享代码（引擎 / 几何 / 棋盘绘制）放在仓库根的 src/，
+  网页放在 public/。两边目录深度不同，用相对路径跨目录会在
+  GitHub Pages 子路径下解析错位（曾经把 /repo/src 解析成 /src）。
+  这里用 import map 起个别名 #shared/，让 esm.sh / vite / Pages 都能解析。
+-->
+<script type="importmap">
+{
+  "imports": {
+    "#shared/": "../src/"
+  }
+}
+</script>
+<link rel="icon" href="./favicon.png" />
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <canvas id="board" role="img" aria-label="中国象棋棋盘"></canvas>
+
+  <!-- 开始前的选边 + 档位 -->
+  <div class="overlay" id="menu">
+    <div class="menu-inner">
+      <h1 class="title">柏林 <span>对</span> 莫斯科</h1>
+      <p class="subtitle">选择你要指挥的一方</p>
+
+      <div class="factions" id="factions"></div>
+
+      <div class="modes">
+        <div class="modes-label">对局模式</div>
+        <div class="level-row" id="modeRow">
+          <button class="level on" type="button" data-mode="local">
+            同一台设备<small>两人轮流下</small>
+          </button>
+          <button class="level" type="button" data-mode="host">
+            我建房 · 局域网<small>同一 WiFi，朋友连我</small>
+          </button>
+          <button class="level" type="button" data-mode="guest">
+            我加入 · 局域网<small>同一 WiFi，输入房主地址</small>
+          </button>
+        </div>
+      </div>
+
+      <!-- 局域网：房主 -->
+      <div class="lanpanel" id="hostPanel" hidden>
+        <div class="lanrow">
+          <span class="lanlabel">让朋友在浏览器打开</span>
+          <code id="lanUrl">—</code>
+          <button class="ghost small" id="copyUrlBtn" type="button">复制</button>
+        </div>
+        <div class="lanrow">
+          <span class="lanlabel">房间号</span>
+          <code id="roomCode">—</code>
+          <span class="lanhint" id="hostStatus">等待握手…</span>
+        </div>
+        <p class="lanhint">必须连同一个 WiFi。朋友的设备打不开就检查防火墙是否放行 Node。</p>
+      </div>
+
+      <!-- 局域网：加入 -->
+      <div class="lanpanel" id="guestPanel" hidden>
+        <div class="lanrow">
+          <span class="lanlabel">房主地址</span>
+          <input id="hostAddr" type="text" inputmode="decimal" placeholder="例如 192.168.1.5:5173" />
+        </div>
+        <div class="lanrow">
+          <span class="lanlabel">房间号</span>
+          <input id="joinRoom" type="text" inputmode="numeric" placeholder="例如 001" />
+        </div>
+        <p class="lanhint" id="guestStatus">填房主屏幕上显示的地址与房间号，然后点开始。</p>
+      </div>
+
+      <div class="levels" id="levels">
+        <div class="levels-label" id="levelsLabel">引擎档位（单人时对手的强度）</div>
+        <div class="level-row" id="levelRow"></div>
+        <label class="switch" id="hotseatWrap">
+          <input type="checkbox" id="hotseatChk" />
+          <span>两人同机（红黑都由人操作，不用引擎）</span>
+        </label>
+      </div>
+
+      <button class="start" id="startBtn" disabled>开始对局</button>
+      <p class="hint" id="menuHint">先选一方，再选档位</p>
+    </div>
+  </div>
+
+  <!-- 结算 -->
+  <div class="overlay result" id="result" hidden>
+    <div class="result-inner">
+      <div class="result-badge" id="resultBadge">胜</div>
+      <h2 id="resultTitle">红方获胜</h2>
+      <p id="resultReason"></p>
+      <div class="result-actions">
+        <button class="start" id="againBtn">再来一局</button>
+        <button class="ghost" id="backBtn">换边</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 顶部横幅：非法着法 / 被拒绝等即时反馈 -->
+  <div class="banner" id="banner" hidden></div>
+
+  <!-- 左上：对手 / 上方那一方 -->
+  <header class="hud hud-top" id="hud" hidden>
+    <div class="hud-side" id="hudTop">
+      <img class="hud-avatar" id="hudTopAvatar" alt="" />
+      <div class="hud-meta">
+        <b id="hudTopName">敌方</b>
+        <span id="hudTopSub"></span>
+      </div>
+    </div>
+    <div class="hud-right">
+      <span class="turn-dot" id="turnDot"></span>
+      <b id="turnText">红方走棋</b>
+      <button class="ghost small" id="undoBtn">悔棋</button>
+      <button class="ghost small" id="menuBtn">菜单</button>
+    </div>
+  </header>
+
+  <!-- 左下：自己 / 下方那一方（同机模式用来指示该谁走） -->
+  <div class="hud hud-bottom" id="hudBottom" hidden>
+    <div class="hud-side" id="hudSelf">
+      <img class="hud-avatar" id="hudSelfAvatar" alt="" />
+      <div class="hud-meta">
+        <b id="hudSelfName">我方</b>
+        <span id="hudSelfSub"></span>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

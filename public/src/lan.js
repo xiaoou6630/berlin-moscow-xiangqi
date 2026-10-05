@@ -1,0 +1,164 @@
+/**
+ * 客户端联机：局域网 WebSocket 封装。
+ *
+ * 只负责"连上、收发消息"，具体怎么落到棋局由 main.js 决定。
+ */
+
+const DEFAULT_PORT = 5173;
+
+/** 当前页面所在的主机名（房主自己就是 host） */
+export function currentHost() {
+  return location.hostname || '127.0.0.1';
+}
+
+/** 拼出局域网地址，给房主展示 */
+export async function lanInfo() {
+  try {
+    const r = await fetch('/api/net', { cache: 'no-store' });
+    if (r.ok) return await r.json();
+  } catch {
+    /* 拿不到就算了 */
+  }
+  return { ips: [currentHost()], port: Number(location.port) || DEFAULT_PORT };
+}
+
+export class LanLink {
+  /**
+   * @param {object} opts
+   * @param {'host'|'guest'} opts.role
+   * @param {string} [opts.room] 客机需要房间号
+   * @param {object} opts.handlers {onOpen,onMessage,onClose,onError}
+   */
+  constructor({ role, room, url, handlers = {} }) {
+    this.role = role;
+    this.room = room;
+    this.handlers = handlers;
+    this.ws = null;
+    this.timer = null;
+    this.url = url ?? this.buildUrl();
+  }
+
+  buildUrl() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const host = this.role === 'host' ? location.host : this.urlHost ?? location.host;
+    const q = new URLSearchParams({ role: this.role });
+    if (this.room) q.set('room', this.room);
+    return `${proto}://${host}/ws?${q}`;
+  }
+
+  connect() {
+    this.ws = new WebSocket(this.url);
+    this.ws.onopen = () => {
+      this.clearTimeout();
+      this.handlers.onOpen?.();
+    };
+    this.ws.onmessage = (ev) => {
+      let msg;
+      try {
+        msg = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
+      this.handlers.onMessage?.(msg);
+    };
+    this.ws.onclose = () => {
+      this.clearTimeout();
+      this.handlers.onClose?.();
+    };
+    this.ws.onerror = () => {
+      this.clearTimeout();
+      this.handlers.onError?.(new Error('连接失败'));
+    };
+    return this;
+  }
+
+  /**
+   * 连接超时。
+   * 地址写错时浏览器可能既不触发 open 也不触发 error/close（例如
+   * 拼成了非法主机名），没有这个计时器 UI 会永远停在"正在连接…"。
+   */
+  startTimeout(ms = CONNECT_TIMEOUT) {
+    this.clearTimeout();
+    this.timer = setTimeout(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) return;
+      try {
+        this.ws?.close();
+      } catch {
+        /* ignore */
+      }
+      this.handlers.onError?.(new Error('连接超时'));
+    }, ms);
+    return this;
+  }
+
+  clearTimeout() {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+  }
+
+  send(payload) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(payload));
+      return true;
+    }
+    return false;
+  }
+
+  close() {
+    this.clearTimeout();
+    try {
+      this.ws?.close();
+    } catch {
+      /* ignore */
+    }
+    this.ws = null;
+  }
+}
+
+/** 默认连接超时（毫秒）：没有超时会让 UI 永远卡在"正在连接…" */
+const CONNECT_TIMEOUT = 8000;
+
+/**
+ * 把用户粘贴的内容整理成 host[:port]。
+ * 房主面板上显示的是 `http://192.168.1.5:5173/`，用户会直接整段粘过来，
+ * 所以 http/https/ws/wss 前缀和结尾斜杠、路径都要剥掉。
+ */
+export function parseAddress(input) {
+  let s = String(input ?? '').trim();
+  if (!s) return '';
+  // 剥协议前缀
+  s = s.replace(/^(https?|wss?):\/\//i, '');
+  // 剥路径 / 查询 / 结尾斜杠
+  s = s.split('/')[0].split('?')[0].trim();
+  return s;
+}
+
+/**
+ * 客机：支持直接填 "192.168.1.5"、"192.168.1.5:5173"，或整段粘
+ * "http://192.168.1.5:5173/"。
+ * @returns {LanLink}
+ */
+export function connectAsGuest(address, room, handlers) {
+  const host = parseAddress(address);
+  if (!host) throw new Error('请填写房主地址');
+  const withPort = host.includes(':') ? host : `${host}:${location.port || DEFAULT_PORT}`;
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const q = new URLSearchParams({ role: 'guest' });
+  if (room) q.set('room', room);
+  const link = new LanLink({
+    role: 'guest',
+    room,
+    url: `${proto}://${withPort}/ws?${q}`,
+    handlers,
+  }).connect();
+  link.startTimeout();
+  return link;
+}
+
+export function connectAsHost(room, handlers) {
+  const link = new LanLink({ role: 'host', room, handlers }).connect();
+  link.startTimeout();
+  return link;
+}

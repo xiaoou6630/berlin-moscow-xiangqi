@@ -1,0 +1,22 @@
+# 依赖 / 构建产物
+node_modules/
+*.log
+
+# 本地浏览器调试用的 Edge profile（每次跑测试都会生成，几十 MB）
+.edge-profile*/
+.edge-dbg*/
+.edge-*/
+.edge-*
+
+# 测试证据截图（体积很大，且都是可再生的）
+preview/
+
+# 与项目无关的素材
+art/germany/touhou_go_board-*.jar
+*.jar
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

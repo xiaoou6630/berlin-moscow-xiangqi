@@ -1,0 +1,26 @@
+{
+  "name": "berlin-moscow-xiangqi",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "KARDS 风格的中国象棋：柏林 vs 莫斯科（标准 9 路 × 10 线棋盘 + 二战卡面棋子）",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node server/server.js",
+    "assets": "python tools/build-assets.py",
+    "shot": "node tools/screenshot.js",
+    "test": "node tools/test-geometry.js && node tools/test-dom.js && node tools/test-engine.js && node tools/test-server.js",
+    "test:geometry": "node tools/test-geometry.js",
+    "test:dom": "node tools/test-dom.js",
+    "test:engine": "node tools/test-engine.js",
+    "test:server": "node tools/test-server.js",
+    "test:lan": "node tools/test-lan.js",
+    "test:pages": "node tools/test-pages.js",
+    "test:browser": "node tools/browser-check.js",
+    "test:browser:lan": "node tools/browser-lan-check.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
