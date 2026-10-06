@@ -10,8 +10,9 @@ import {
   RANKS,
   findGeneral,
   gameStatus,
-  isInCheck,
+  isAttacked,
   legalMoves,
+  pseudoMoves,
   initialState,
   idx,
 } from '#shared/engine/rules.js';
@@ -714,7 +715,9 @@ function refreshView({ animate = true } = {}) {
   // 不会把已经撤销的那步留在盘上误导人。
   const lm = game.lastMove;
   view.markLastMove(lm ? lm.from : null, lm ? lm.to : null);
-  view.checkSide = isInCheck(game.state.board, game.state.turn) ? game.state.turn : null;
+  // 被攻击提示用 isAttacked（精确的"有没有子能吃你的帅"），
+  // 不用 isInCheck —— 后者把"将帅照面"也算进来，会误标红圈
+  view.checkSide = isAttacked(game.state.board, game.state.turn) ? game.state.turn : null;
   const gid = {};
   gid[RED] = findGeneral(game.state.board, RED);
   gid[BLACK] = findGeneral(game.state.board, BLACK);
@@ -926,12 +929,40 @@ function handleTap(ev) {
         .filter((m) => m.from === id)
         .map((m) => m.to),
     );
+    // 选中了却一个可走点都没有（纯几何原因：象眼被塞之类）—— 说清楚，
+    // 别让玩家以为棋子坏了
+    if (!state.view.targets.size) {
+      const why = explainImmobile(id);
+      if (why) flashBanner(why);
+    }
   } else {
     state.view.selected = null;
     state.view.targets = new Set();
     // 点到空白/对方的子：收起预览（手机上用它关掉）
     hideCardPeek();
   }
+}
+
+/**
+ * 解释"这只子为什么一步都走不了"。
+ *
+ * 点一个子却没有任何可走点，以前是**完全静默**的，玩家会以为棋子坏了。
+ *
+ * ⚠️ 规则改过之后，"送将"不再是原因（任何子都能随便走），
+ * 所以走不了只剩**几何原因**：象眼被塞、象要过河、士出不了九宫、
+ * 落点被自己人占住、或者四个方向全出界。
+ */
+function explainImmobile(id) {
+  const state0 = state.game.state;
+  const piece = state0.board[id];
+  const candidates = pseudoMoves(state0, state.turn).filter((m) => m.from === id);
+  if (candidates.length) return null; // 有得走就不该调到这里
+
+  const label = piece ? (PIECE_LABELS[piece.type] ?? '这个子') : '这个子';
+  const hint = piece?.type === 'elephant' ? '（象走"田"字，象眼被塞或要过河都不行）'
+    : piece?.type === 'advisor' ? '（士只能在九宫里斜走一格）'
+      : '';
+  return `${label}现在没有落点${hint}`;
 }
 
 /* ---------------- 放大预览：悬停 / 长按棋子时看清卡面 ---------------- */
@@ -1172,36 +1203,50 @@ menuBtn?.addEventListener('click', () => {
 /* ---------------- 结算 ---------------- */
 
 function endGame(st) {
+  if (state.over) return; // 结算只走一次
   state.over = true;
   state.view.selected = null;
   state.view.targets = new Set();
   state.view.checkSide = null;
   paintHud();
 
-  // 被将死的一方：将/帅变红 → 顺时针 90° 倒地
-  const loser = st.winner === RED ? BLACK : RED;
-  const gid = findGeneral(state.game.state.board, loser);
-  if (gid >= 0 && st.reason === 'checkmate') {
-    const type = state.game.state.board[gid]?.type ?? 'general';
-    state.view.killGeneral(loser, type, gid, performance.now());
-  }
-
+  /*
+   * 胜负只有一种来源：**对方的将/帅被吃掉**（规则已按用户要求改过，
+   * 没有"将死"和"困毙判负"）。
+   *
+   * 被吃掉的将已经不在棋盘上了，所以不能再对它播"翻倒动画"
+   * （那个动画是给"被将死、牌还留在原位"设计的）。
+   * 取而代之：让玩家的那张牌在原地翻倒淡出——由 doHumanMove 里的
+   * playDeath 负责（吃子路径本来就会调用）。
+   */
   const humanWon = st.winner === state.humanSide;
   const winnerName = st.winner === RED ? '红方 · 莫斯科' : '黑方 · 柏林';
   const reasonText =
-    st.reason === 'checkmate' ? '将死' : st.reason === 'stalemate' ? '困毙（无子可走）' : '结束';
+    st.reason === 'general-captured' ? '将帅被吃'
+      : st.reason === 'no-moves' ? '无着可走（双方都还在）'
+        : st.reason === 'both-general-captured' ? '双方将帅同归于尽'
+          : '结束';
 
-  // 等翻倒动画演完再弹结算；这个定时器必须可取消，
+  // 立刻给一句横幅，别让玩家干等结算面板
+  flashBanner(
+    st.winner == null
+      ? `${reasonText} —— 本局无胜负`
+      : `${winnerName}获胜 · ${reasonText}`,
+  );
+
+  // 等动画演完再弹结算；这个定时器必须可取消，
   // 否则玩家在动画期间点"菜单"，过期的结算面板会盖到菜单上
   clearResultTimer();
   resultTimer = setTimeout(() => {
     resultTimer = 0;
     resultBadge.textContent = humanWon ? '胜' : '负';
     resultBadge.classList.toggle('lose', !humanWon);
-    resultTitle.textContent = humanWon ? '你赢了' : '你输了';
-    resultReason.textContent = `${winnerName} 获胜 · ${reasonText}`;
+    resultTitle.textContent = st.winner == null ? '本局无胜负' : (humanWon ? '你赢了' : '你输了');
+    resultReason.textContent = st.winner == null
+      ? reasonText
+      : `${winnerName} 获胜 · ${reasonText}`;
     resultEl.hidden = false;
-  }, st.reason === 'checkmate' ? 1550 : 300);
+  }, 300);
 }
 
 againBtn.addEventListener('click', () => {

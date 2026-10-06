@@ -260,14 +260,23 @@ export function findGeneral(board, side) {
 
 /** 在给定棋盘上，side 方是否正被将军 */
 export function isInCheck(board, side) {
+  if (isAttacked(board, side)) return true;
+  // 将帅照面：正规规则里等同于被将军（所以这里也算进去）
+  return generalsFace(board);
+}
+
+/**
+ * side 方的将/帅是否正被**某个子攻击**（不含"将帅照面"）。
+ *
+ * 吃帅模式要用这个而不是 isInCheck：那种玩法下"照面"本身不构成将军，
+ * 否则 UI 会画一个红圈说"你被将了"，但其实没人能吃你的帅。
+ */
+export function isAttacked(board, side) {
   const g = findGeneral(board, side);
-  if (g < 0) return true;
+  if (g < 0) return false; // 已经被吃掉，不叫"被将"
   const gf = fileOf(g);
   const gr = rankOf(g);
   const foe = side === RED ? BLACK : RED;
-
-  // 将帅照面
-  if (generalsFace(board)) return true;
 
   // 车 / 炮 / 兵 / 将 沿直线
   const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
@@ -333,26 +342,69 @@ function leavesKingExposed(state, move, side) {
   return isInCheck(board, side);
 }
 
-/** 全部合法走法（过滤掉自将着法） */
+/**
+ * 全部合法走法。
+ *
+ * ⚠️ 本项目**故意去掉了"不允许送将"这条规则**（用户要求：正常模式就能吃帅）。
+ * 所以这里不过滤 leavesKingExposed：
+ *   - 任何子都可以随便走，被将军时也不必应将
+ *   - 将/帅可以被吃掉（被吃即输，见 gameStatus）
+ *   - 因此不存在"某个子一步都动不了"的情况
+ *
+ * 代价（都是去规则的必然结果，不是 bug）：
+ *   - 没有"将死"，胜负只由"帅被吃"决定
+ *   - 没有"困毙判负"：无子可走只是没得走，不判负
+ *   - 引擎仍会偏好吃掉对方的帅（评估函数里帅分值极高）
+ */
 export function legalMoves(state, side = state.turn) {
-  return pseudoMoves(state, side).filter((m) => !leavesKingExposed(state, m, side));
+  return pseudoMoves(state, side);
+}
+
+/** 找某方的将/帅；返回 -1 表示已被吃掉 */
+export function findGeneralIndex(board, side) {
+  for (let i = 0; i < board.length; i++) {
+    const p = board[i];
+    if (p && p.type === 'general' && p.side === side) return i;
+  }
+  return -1;
 }
 
 /**
  * 局面判定。
- * @returns {{over:boolean, winner:?string, reason:string}}
+ *
+ * ⚠️ 本项目的胜负规则（按用户要求改过）：
+ *   - **唯一取胜方式：吃掉对方的将/帅**。被吃的一方立刻判负。
+ *   - 没有"将死"，没有"困毙判负"。被将军也可以不管、可以随便走，
+ *     只要你的帅没被吃掉，对局就继续。
+ *   - 无子可走（走投无路）不判负，只是这一方没得走；
+ *     如果轮到的一方彻底无子可走且双方都还在，按"无着可走"停止（winner 为空）。
+ *
+ * @returns {{over:boolean, winner:?string, reason:string, checked:boolean}}
  */
 export function gameStatus(state) {
   const side = state.turn;
-  const moves = legalMoves(state, side);
-  const checked = isInCheck(state.board, side);
 
-  if (moves.length === 0) {
-    if (checked) {
-      return { over: true, winner: side === RED ? BLACK : RED, reason: 'checkmate', checked };
+  // 1) 只看将/帅还在不在 —— 这是唯一的胜负依据
+  const redAlive = findGeneralIndex(state.board, RED) >= 0;
+  const blackAlive = findGeneralIndex(state.board, BLACK) >= 0;
+  if (!redAlive || !blackAlive) {
+    if (!redAlive && !blackAlive) {
+      return { over: true, winner: null, reason: 'both-general-captured', checked: false };
     }
-    // 困毙：无子可走也判负（规则 3.2 / 4.1.3）
-    return { over: true, winner: side === RED ? BLACK : RED, reason: 'stalemate', checked };
+    return {
+      over: true,
+      winner: redAlive ? RED : BLACK,
+      reason: 'general-captured',
+      checked: false,
+    };
+  }
+
+  // 2) 还在下：只是提示"你的将正被攻击"（可以让玩家选择不管）
+  const checked = isAttacked(state.board, side);
+  const moves = legalMoves(state, side);
+  if (moves.length === 0) {
+    // 无子可走：不判负（规则已去掉），也算不上终局，交给上层提示
+    return { over: true, winner: null, reason: 'no-moves', checked };
   }
   return { over: false, winner: null, reason: checked ? 'check' : 'normal', checked };
 }

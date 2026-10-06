@@ -11,6 +11,7 @@ import {
   RANKS,
   initialState,
   isInCheck,
+  isAttacked,
   legalMoves,
   gameStatus,
   pseudoMoves,
@@ -227,7 +228,21 @@ check('飞将属于非法着法（走后自将）', () => {
   assert.equal(isInCheck(s.board, RED), true, '照面应视为被将军');
 });
 
-check('被将军时只能走应将着法', () => {
+/*
+ * ⚠️ 从这里开始是**本项目特意改过的规则**（用户要求踹掉"不允许送将"）。
+ *
+ * 旧规则：不能走送将的着法 → 被将军只能应将 → 将死/困毙判负。
+ * 新规则：任何子都能随便走 → **吃掉对方的将/帅才赢** → 没有将死、没有困毙判负。
+ *
+ * 所以下面这些断言的预期完全反过来了。
+ */
+check('送将着法不再被过滤（被将军时也能随便走）', () => {
+  /*
+   * 用一个真正"牵制"的局面：黑车 (0,4) 沿 0 路盯着红帅… 不，帅在 (4,9)。
+   * 改成：黑车 (0,9) 与红帅 (4,9) 同一横线，中间 (2,9) 放一个红马挡着。
+   * 马一动，底线就通 → 帅被车吃。旧规则下这匹马一步都不能走；
+   * 新规则下它随便走（走了就等着被吃帅）。
+   */
   const s = position([
     '....g....',
     '.........',
@@ -237,24 +252,51 @@ check('被将军时只能走应将着法', () => {
     '.........',
     '.........',
     '.........',
-    '..r......',
-    '....G....',
+    '.........',
+    'r.H.G....',
   ], RED);
-  // 黑车在 (2,8) 横向吃将：(2,8) -> (3,8) -> (4,8) 不，将在 (4,9)，车在 (2,8) 不构成将军
-  s.board[idx(4, 8)] = { type: 'chariot', side: BLACK };
-  const checked = isInCheck(s.board, RED);
-  assert.equal(checked, true, '黑车在帅正上方应将军');
+  const horse = idx(2, 9);
   const legal = legalMoves(s, RED);
-  for (const m of legal) {
-    const b = s.board.slice();
-    b[m.to] = b[m.from];
-    b[m.from] = null;
-    assert.equal(isInCheck(b, RED), false, '合法着法不应仍被将军');
-  }
+  const horseMoves = legal.filter((m) => m.from === horse);
+  assert.ok(horseMoves.length > 0, '新规则下这匹马应当能走（旧规则下是 0 步）');
+
+  // 走完确实会被攻击 —— 但引擎不再因此拒绝
+  const after = s.board.slice();
+  const m0 = horseMoves[0];
+  after[m0.to] = after[m0.from];
+  after[m0.from] = null;
+  assert.equal(isAttacked(after, RED), true, '这匹马走开后帅确实会被车吃（牵制）');
 });
 
-check('将死判定：车在九宫口将军，两翼被封', () => {
-  // 黑将在 (4,0)：红车 (4,1) 贴身将军；(0,0) 与 (8,0) 两个红车封住两翼退路
+check('吃掉对方的将/帅即获胜（唯一的取胜方式）', () => {
+  const s = position([
+    '....g....',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '.........',
+    '....r....',
+    '.........',
+    '....G....',
+  ], RED);
+  // 黑车 (4,7) 与红帅 (4,9) 之间 (4,8) 空 → 车能一路吃到帅
+  const canEat = legalMoves(s, RED).some((m) => m.to === idx(4, 7))
+    || legalMoves(s, BLACK).some((m) => m.to === idx(4, 9));
+  assert.equal(canEat, true, '应当存在吃掉对方将/帅的着法');
+
+  // 直接把红帅拿掉，模拟"被吃了"
+  const b = s.board.slice();
+  b[idx(4, 9)] = null;
+  const st = gameStatus({ board: b, turn: BLACK, history: [] });
+  assert.equal(st.over, true, '帅被吃应判定结束');
+  assert.equal(st.winner, BLACK, `应黑方获胜，实际 ${st.winner}`);
+  assert.equal(st.reason, 'general-captured');
+});
+
+check('没有"将死"这一说：帅还在就继续下', () => {
+  // 旧测试里的"将死"局面，现在不应该判结束
   const s = position([
     'R...g...R',
     '....R....',
@@ -267,20 +309,19 @@ check('将死判定：车在九宫口将军，两翼被封', () => {
     '.........',
     '....G....',
   ], BLACK);
-  assert.equal(isInCheck(s.board, BLACK), true, '黑将应被将军');
-  assert.equal(legalMoves(s, BLACK).length, 0, '黑方应无子可走');
+  assert.equal(isAttacked(s.board, BLACK), true, '黑将仍被红车攻击');
+  // 新规则：被攻击也能走，所以绝不该出现"无着可走"
+  assert.ok(legalMoves(s, BLACK).length > 0, '新规则下黑方不可能是零着法');
   const st = gameStatus(s);
-  assert.equal(st.over, true, '应判定结束');
-  assert.equal(st.winner, RED, `应红方获胜，实际 ${st.winner} / ${st.reason}`);
-  assert.equal(st.reason, 'checkmate');
+  assert.equal(st.reason, 'check', `应当只是"被将"，实际 ${st.reason}`);
+  // 黑将可以直接吃掉贴身的红车
+  assert.ok(
+    legalMoves(s, BLACK).some((m) => m.from === idx(4, 0) && m.to === idx(4, 1)),
+    '黑将应当能吃掉贴身的红车',
+  );
 });
 
-check('困毙（无子可走但未被将军）也判负', () => {
-  // 黑将 (4,0) 未被将军，三个落点分别被控制：
-  //   (3,0) ← 红车 R(3,3) 沿第 3 路直上
-  //   (4,1) ← 红相 E(4,2) 的"田"字（象眼 (3,3)/(5,3) 之一为空即可，这里 (5,3) 空）
-  //   (5,0) ← 红马 H(6,2) 的"日"字（马腿 (6,1) 空）
-  // 同时 E(4,2) 正好挡住第 4 路，避免将帅照面。
+check('没有"困毙判负"：无子可走也不结束', () => {
   const s = position([
     '....g....',
     '.........',
@@ -293,13 +334,10 @@ check('困毙（无子可走但未被将军）也判负', () => {
     '.........',
     '....G....',
   ], BLACK);
-  assert.equal(isInCheck(s.board, BLACK), false, '这局面不应被将军');
-  const remaining = legalMoves(s, BLACK);
-  assert.equal(remaining.length, 0, `黑方应无子可走，实际 ${remaining.length} 步`);
+  // 去掉"送将过滤"后，黑将总能乱走，所以永不为零
+  assert.ok(legalMoves(s, BLACK).length > 0, '新规则下黑方总有得走');
   const st = gameStatus(s);
-  assert.equal(st.over, true, '困毙应判结束');
-  assert.equal(st.reason, 'stalemate');
-  assert.equal(st.winner, RED);
+  assert.equal(st.over, false, '不应当判结束（没有困毙判负）');
 });
 
 console.log('engine · 搜索');
@@ -364,16 +402,22 @@ check('假将军不会导致假将死（曾经会错判胜负）', () => {
 });
 
 check('引擎能在 1 步吃掉白送的车', () => {
+  /*
+   * ⚠️ 改规则后这里要**封住 4 路**：红车在 (4,5)、黑车在 (4,6)、黑将在 (4,0)、
+   * 红帅在 (4,9)。4 路一旦畅通，红车可以直接 4,5→4,9 把黑将吃掉，
+   * AI 当然选赢棋而不是吃车（第一版就是这么"失败"的）。
+   * 在 (4,2) 与 (4,8) 各放一个自己的兵，把 4 路隔断，只看吃车。
+   */
   const s = position([
     '....g....',
     '.........',
-    '.........',
+    '....P....',
     '.........',
     '.........',
     '....R....',
     '....r....',
     '.........',
-    '.........',
+    '....P....',
     '....G....',
   ], RED);
   const mv = chooseMove(s, { id: 2, name: 't', depth: 3, timeMs: 400, random: 0 });
