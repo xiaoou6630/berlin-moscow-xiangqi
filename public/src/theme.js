@@ -12,6 +12,42 @@
 // 卡面尺寸必须与几何共用同一来源，改一处即两处生效
 export { CARD_ASPECT as CARD_RATIO, CARD_WIDTH_UNITS } from '#shared/geometry.js';
 
+/**
+ * 每种棋子对应的单位名（放大预览里显示，方便认牌）。
+ * 与 README 的映射表一致。
+ */
+export const UNIT_NAMES = {
+  soviet: {
+    general: '莫斯科',
+    advisor: '近卫步兵第 272 团',
+    elephant: '战术撤退',
+    horse: '库班哥萨克第 4 团',
+    chariot: 'IS-2',
+    cannon: '喀秋莎',
+    pawn: '步兵第 554 团',
+  },
+  germany: {
+    general: '阿登',
+    advisor: '三号坦克 H 型',
+    elephant: '步兵第百十四联队',
+    horse: '第 15 侦察营',
+    chariot: '虎式坦克 H 型',
+    cannon: '利奥波德',
+    pawn: '第 18 步兵团',
+  },
+};
+
+/** 棋子类型的中文称谓（用于预览副标题） */
+export const PIECE_LABELS = {
+  general: '帅 / 将',
+  advisor: '士',
+  elephant: '相 / 象',
+  horse: '马',
+  chariot: '车',
+  cannon: '炮',
+  pawn: '兵 / 卒',
+};
+
 export const SOVIET = 'soviet';
 export const GERMANY = 'germany';
 

@@ -334,6 +334,84 @@ body {
 
 .banner[hidden] { display: none; }
 
+/* ---------------- 放大预览（悬停 / 点选棋子时）---------------- */
+
+/*
+ * 棋盘受 9×10 比例限制，卡面在 1400px 窗口下只有 ~45px 宽，字看不清。
+ * 这里显示一张约 3 倍大的卡面，只用于看清，不参与对局。
+ *
+ * 窄屏（手机）时它是**文档流里的一块**，排在画布下面（见下面的媒体查询），
+ * 高度由 main.js 量出来写进 --peek-h 并计入画布预留 —— 这样不会盖住棋盘。
+ * 宽屏时改成浮层贴在棋盘旁边，因为旁边有富余空间。
+ */
+.cardpeek {
+  z-index: 16;
+  width: min(168px, 46vw);
+  padding: 6px;
+  border-radius: 8px;
+  background: rgba(8, 12, 16, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  animation: rise 0.12s ease-out;
+}
+
+.cardpeek[hidden] { display: none; }
+
+.cardpeek img {
+  display: block;
+  width: 100%;
+  border-radius: 4px;
+}
+
+.cardpeek-meta { text-align: center; }
+
+.cardpeek-name {
+  margin-top: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #efe9db;
+}
+
+.cardpeek-sub {
+  font-size: 11px;
+  color: rgba(233, 228, 214, 0.6);
+}
+
+/* 宽屏：旁边有空间，浮在棋盘侧面（由 main.js 算 left/top） */
+@media (min-width: 1100px) {
+  .cardpeek { position: fixed; }
+}
+
+/* 窄屏：排在画布下方，横排（小图 + 文字），整块高度计入预留 */
+@media (max-width: 1099px) {
+  .cardpeek {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: auto;
+    max-width: min(420px, 92vw);
+    margin: 8px auto 0;
+    padding: 6px 12px 6px 6px;
+  }
+
+  .cardpeek img {
+    width: min(72px, 22vw);
+    flex: 0 0 auto;
+  }
+
+  .cardpeek-meta { text-align: left; }
+
+  .cardpeek-name {
+    margin-top: 0;
+    font-size: 14px;
+  }
+
+  .cardpeek-sub { font-size: 11px; }
+}
+
 /* ---------------- 版权声明（1939 Games 社区许可第 6 条要求显著展示）---------------- */
 
 /*

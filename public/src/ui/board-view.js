@@ -170,7 +170,43 @@ export class BoardView {
     return { file: id % FILES, rank: Math.floor(id / FILES) };
   }
 
-  /** 画布像素 → 屏幕上的格子（display 空间），越界返回 null */
+  /**
+   * 落在某个棋子上的命中检测（用于放大预览）。
+   *
+   * 卡面比交叉点大，按交叉点吸附的话，牌边缘的空白处会吸不到；
+   * 所以先看明确命中的格子，不行再找最近的精灵中心（在半个卡面内就算命中）。
+   *
+   * @param {number} px 画布坐标
+   * @param {number} py 画布坐标
+   * @returns {number|null} 模型格 id
+   */
+  pieceAt(px, py) {
+    const cell = this.snap(px, py);
+    if (cell) {
+      const id = cell.rank * FILES + cell.file;
+      if (this.sprites.has(id)) return id;
+    }
+    // 就近吸附：牌画在交叉点中心，取距离最近且在容差内的
+    const tolX = this.cardW * 0.55;
+    const tolY = this.cardH * 0.55;
+    let best = null;
+    let bestD = Infinity;
+    for (const s of this.sprites.values()) {
+      const dx = Math.abs(s.x - px);
+      const dy = Math.abs(s.y - py);
+      if (dx > tolX || dy > tolY) continue;
+      const d = dx * dx + dy * dy;
+      if (d < bestD) {
+        bestD = d;
+        best = s.id;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * 画布像素 → 屏幕上的格子（display 空间），越界返回 null
+   */
   displayCellAt(px, py) {
     if (!this.isFlipped()) return this.layout.snap(px, py);
     const { padding, boardW, boardH } = this.layout;

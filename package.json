@@ -26,6 +26,7 @@
     "test:lan": "node tools/test-lan.js",
     "test:lan-addr": "node tools/test-lan-addr.js",
     "test:viewport": "node tools/test-viewport.js",
+    "test:peek": "node tools/test-peek.js",
     "test:pages": "node tools/test-pages.js",
     "test:narrow": "node tools/test-narrow.js",
     "test:browser": "node tools/browser-check.js",

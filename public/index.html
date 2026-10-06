@@ -112,6 +112,20 @@
   <!-- 顶部横幅：非法着法 / 被拒绝等即时反馈 -->
   <div class="banner" id="banner" hidden></div>
 
+  <!--
+    放大预览：悬停 / 点选棋子时显示放大的卡面。
+    棋盘受比例限制，卡面只能做到 ~45px 宽，字太小；这个是给"看清"用的。
+    桌面（宽屏）浮在棋盘旁边；窄屏改成棋盘**下方**的横排卡片，
+    高度会算进布局预留（见 main.js 的 --peek-h），所以不会盖住棋盘。
+  -->
+  <div class="cardpeek" id="cardPeek" hidden>
+    <img id="cardPeekImg" alt="" />
+    <div class="cardpeek-meta">
+      <div class="cardpeek-name" id="cardPeekName"></div>
+      <div class="cardpeek-sub" id="cardPeekSub"></div>
+    </div>
+  </div>
+
   <!-- 左上：对手 / 上方那一方 -->
   <header class="hud hud-top" id="hud" hidden>
     <div class="hud-side" id="hudTop">

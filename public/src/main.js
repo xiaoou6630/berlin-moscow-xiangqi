@@ -16,7 +16,10 @@ import {
   idx,
 } from '#shared/engine/rules.js';
 import { chooseMove, LEVELS } from '#shared/engine/ai.js';
-import { CARD_RATIO, CARD_WIDTH_UNITS, DIFFICULTY_UI, FACTIONS, GERMANY, SOVIET, sideOfFaction } from './theme.js';
+import {
+  CARD_RATIO, CARD_WIDTH_UNITS, DIFFICULTY_UI, FACTIONS, GERMANY, PIECE_LABELS, SOVIET,
+  UNIT_NAMES, factionOfSide, sideOfFaction,
+} from './theme.js';
 import { connectAsGuest, connectAsHost, lanInfo } from './lan.js';
 // ⚠️ 这两个必须是**静态** import：页面用了 <base href="./public/">，
 //    而 <base> 不影响 ES module 的相对解析（只影响 HTML 里的 URL）。
@@ -51,6 +54,10 @@ const resultBadge = document.getElementById('resultBadge');
 const resultTitle = document.getElementById('resultTitle');
 const resultReason = document.getElementById('resultReason');
 const bannerEl = document.getElementById('banner');
+const cardPeekEl = document.getElementById('cardPeek');
+const cardPeekImg = document.getElementById('cardPeekImg');
+const cardPeekName = document.getElementById('cardPeekName');
+const cardPeekSub = document.getElementById('cardPeekSub');
 const againBtn = document.getElementById('againBtn');
 const backBtn = document.getElementById('backBtn');
 const hud = document.getElementById('hud');
@@ -482,6 +489,26 @@ function bindControls() {
   hotseatChk?.addEventListener('change', paintMenuSelection);
 
   bindResize();
+  bindCardPeek();
+}
+
+/**
+ * 放大预览的触发绑定。
+ * 桌面用悬停（有 hover 才绑，手机上绑了反而会在滑动误触），
+ * 手机靠点选触发（见 canvas 的 pointerdown）。
+ */
+function bindCardPeek() {
+  if (canHover()) {
+    canvas.addEventListener('mousemove', onCanvasHover);
+    canvas.addEventListener('mouseleave', hideCardPeek);
+  }
+  // 触摸滑动时挪开预览，别跟着手指乱跳
+  window.addEventListener('scroll', () => {
+    if (peekId != null) placeCardPeek();
+  }, { passive: true });
+  window.addEventListener('resize', () => {
+    if (peekId != null) placeCardPeek();
+  });
 }
 
 /**
@@ -517,7 +544,25 @@ function bindResize() {
   remeasure();
 }
 
-/** 按 HUD / 版权声明的实际高度给画布留出空间，然后重算 */
+/**
+ * 预览块在文档流里占多高。
+ *
+ * ⚠️ 宽屏时它是 `position: fixed` 浮层（贴在棋盘旁边），**不占文档流**，
+ * 所以预留必须是 0 —— 否则会出现"悬停一下棋盘就缩小一大截"的怪事。
+ * 窄屏时它排在画布下方（relative），这时才要把它算进预留，
+ * 否则会把画布顶出视口、盖住底部。
+ */
+function peekFlowHeight() {
+  const el = cardPeekEl;
+  if (!el || el.hidden) return 0;
+  const pos = getComputedStyle(el).position;
+  if (pos === 'fixed' || pos === 'absolute') return 0;
+  return el.getBoundingClientRect().height;
+}
+
+/**
+ * 按 HUD / 版权声明的实际高度给画布留出空间，然后重算
+ */
 function measureAndResize() {
   const view = state.view;
   if (!view) return;
@@ -543,7 +588,10 @@ function measureAndResize() {
   // 版权声明是**固定**贴在视口最底层的浮层，高度只取决于视口宽度。
   // 从可用高度里把它扣掉，画布就不会伸到它下面去。
   const noticeH = h(noticeEl);
-  view.reserveBottom = noticeH + 14;
+  // 放大预览在窄屏时是文档流里排在画布下面的一块，也要扣掉，
+  // 否则它会把画布顶出视口；宽屏是浮层，peekFlowHeight() 会返回 0。
+  const peekH = peekFlowHeight();
+  view.reserveBottom = noticeH + peekH + 14;
   view.resize();
   // 底部头像抬到版权声明之上，两者永不重叠
   root.setProperty('--notice-h', `${Math.round(noticeH) + 8}px`);
@@ -803,11 +851,125 @@ canvas.addEventListener('pointerdown', (ev) => {
         .filter((m) => m.from === id)
         .map((m) => m.to),
     );
+    // 点选同时也是"放大看清"的触发方式（手机没有 hover）
+    showCardPeek(id);
   } else {
     state.view.selected = null;
     state.view.targets = new Set();
+    // 点到空白/不可操作的棋子：收起预览（手机上用它关掉）
+    hideCardPeek();
   }
 });
+
+/* ---------------- 放大预览：悬停 / 点选时看清卡面 ---------------- */
+
+/*
+ * 棋盘受 9×10 比例限制，卡面在 1400px 窗口下只有 ~45px 宽，字太小。
+ * 这里在棋盘外侧浮出一张约 3 倍大的卡面。做成 DOM 浮层，所以
+ * 不参与棋盘布局，也不会像放大卡面那样造成溢出。
+ *
+ * 两种触发方式：
+ *   - 桌面：鼠标悬停在棋子上（有 hover 才绑定）
+ *   - 手机：点选棋子时弹出（没有 hover），并在被点棋子的**上方**显示，
+ *           免得手指正好压住预览；点空白处收起。
+ */
+let peekId = null;
+
+/** 触摸设备？有 hover 才用悬停触发 */
+const canHover = () => window.matchMedia?.('(hover: hover)').matches ?? false;
+
+function showCardPeek(id) {
+  const view = state.view;
+  const sprite = view?.sprites.get(id);
+  if (!sprite) return;
+
+  const fid = factionOfSide(sprite.side);
+  const cfg = FACTIONS[fid];
+  const url = cfg?.cards?.[sprite.type];
+  if (!url) return;
+
+  const wasHidden = cardPeekEl.hidden;
+  peekId = id;
+  cardPeekImg.src = `./assets/${url}`;
+  cardPeekName.textContent = UNIT_NAMES[fid]?.[sprite.type] ?? sprite.type;
+  cardPeekSub.textContent = `${PIECE_LABELS[sprite.type] ?? ''} · ${cfg.name}`;
+  cardPeekEl.hidden = false;
+  placeCardPeek();
+  // 窄屏时这块占文档流高度，出现/消失都要重算棋盘尺寸
+  if (wasHidden) scheduleRemeasure();
+}
+
+function hideCardPeek() {
+  if (peekId == null && cardPeekEl.hidden) return;
+  peekId = null;
+  cardPeekEl.hidden = true;
+  scheduleRemeasure();
+}
+
+/** 宽屏（旁边有空间）才做浮层定位；窄屏靠 CSS 排在画布下方 */
+const isWideLayout = () => window.innerWidth >= 1100;
+
+/**
+ * 摆放预览。
+ * 只在宽屏时生效：贴在**被悬停/点选的那个棋子**旁边，不挡棋子、不挡棋盘。
+ * 窄屏走 CSS（画布下方横排），位置由布局决定，这里不用管。
+ */
+function placeCardPeek() {
+  if (cardPeekEl.hidden || peekId == null) return;
+  if (!isWideLayout()) {
+    // 清掉可能残留的内联定位，交给 CSS
+    cardPeekEl.style.left = '';
+    cardPeekEl.style.top = '';
+    return;
+  }
+  const view = state.view;
+  const sprite = view?.sprites.get(peekId);
+  if (!sprite) return;
+
+  const cRect = canvas.getBoundingClientRect();
+  const pRect = cardPeekEl.getBoundingClientRect();
+  const gap = 12;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  // 棋子中心换算成屏幕坐标（画布是等比缩放的，按比例换算）
+  const sx = cRect.left + (sprite.x / view.layout.width) * cRect.width;
+  const sy = cRect.top + (sprite.y / view.layout.height) * cRect.height;
+
+  // 横向：优先棋盘右侧，其次左侧 —— 都比"压在棋盘上"好
+  const rightSide = cRect.right + gap;
+  const leftSide = cRect.left - gap - pRect.width;
+  let left;
+  if (rightSide + pRect.width <= vw - 8) left = rightSide;
+  else if (leftSide >= 8) left = leftSide;
+  else left = Math.min(Math.max(sx - pRect.width / 2, 8), Math.max(8, vw - pRect.width - 8));
+
+  // 纵向：跟着棋子，夹进视口
+  let top = sy - pRect.height / 2;
+  top = Math.min(Math.max(top, 8), Math.max(8, vh - pRect.height - 8));
+
+  cardPeekEl.style.left = `${Math.round(left)}px`;
+  cardPeekEl.style.top = `${Math.round(top)}px`;
+}
+
+/** 鼠标在棋盘上移动：命中棋子就预览，离开就收起（仅桌面） */
+function onCanvasHover(ev) {
+  const view = state.view;
+  if (!view || !state.game) {
+    hideCardPeek();
+    return;
+  }
+  const rect = canvas.getBoundingClientRect();
+  const px = ((ev.clientX - rect.left) / rect.width) * view.layout.width;
+  const py = ((ev.clientY - rect.top) / rect.height) * view.layout.height;
+  const id = view.pieceAt(px, py);
+  if (id == null) {
+    hideCardPeek();
+    return;
+  }
+  if (id !== peekId) showCardPeek(id);
+  else placeCardPeek();
+}
 
 function doHumanMove(from, to) {
   const captured = state.game.state.board[to];
