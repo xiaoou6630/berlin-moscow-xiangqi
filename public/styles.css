@@ -33,12 +33,12 @@ body {
    */
   justify-content: safe center;
   /*
-   * 顶部 HUD 是固定定位的浮层，用 padding 给它让出整块空间。
-   * ⚠️ 别再把这个高度同时算进画布的 reserveTop —— 那样内容总高会超过可用高度，
-   * flex 居中就会把画布顶到 HUD 下面（小屏幕上必现）。
-   * 顶部实际高度由 main.js 按 HUD 量出来写进 --hud-top。
+   * 顶部 HUD 与底部"自己"头像都是固定定位的浮层，用 padding 各让出一块空间。
+   * ⚠️ 别再把这些高度同时算进画布的 reserveTop/reserveBottom —— 那样内容总高
+   * 会超过可用高度，flex 居中就会把画布顶到浮层下面去（小屏幕上必现）。
+   * 两个实际高度由 main.js 量出来写进 --hud-top / --hud-bottom。
    */
-  padding: var(--hud-top, 86px) 0 6px;
+  padding: var(--hud-top, 86px) 0 var(--hud-bottom, 6px);
   overflow: auto;
 }
 
@@ -337,29 +337,41 @@ body {
 /* ---------------- 版权声明（1939 Games 社区许可第 6 条要求显著展示）---------------- */
 
 /*
- * 声明用**正常文档流**，跟在画布下面。
- *
- * 之前是 position:fixed 贴底，结果压住了左下角的"自己"头像
- * （两人同机时那里有个头像框）。放文档流里就不会盖任何东西。
- * 高度由 main.js 的 measureAndResize() 量出来并从画布可用高度里扣掉。
+ * 声明**钉在屏幕最底层**，横向占满，只放一行链接 + 一句中文。
+ * 完整声明（中英对照）在 public/licenses.html。
+ * 左下角的"自己"头像抬到它上面（见 .hud-bottom 的 --notice-h），两者不重叠。
  */
 .notice {
-  flex: 0 0 auto;
-  /* 宽度不能超过父容器的内容区，否则窄屏上会横向溢出 */
-  max-width: min(920px, 100%);
-  margin: 8px auto 10px;
-  padding: 5px 14px;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 14;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  padding: 5px 12px;
   font-size: 11px;
-  line-height: 1.5;
+  line-height: 1.4;
   text-align: center;
   letter-spacing: 0.02em;
-  color: rgba(233, 228, 214, 0.62);
-  background: rgba(6, 9, 12, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 5px;
+  color: rgba(233, 228, 214, 0.6);
+  background: rgba(6, 9, 12, 0.92);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.notice b { color: rgba(233, 228, 214, 0.86); font-weight: 600; }
+.notice a {
+  color: #e8c979;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.notice a:hover { color: #f5e0a8; }
+
+/* 中文补充：让中文玩家一眼看懂这是什么 */
+.notice-zh { color: rgba(233, 228, 214, 0.5); }
 
 /* 菜单遮罩盖在上面时声明也要看得见（社区许可要求显著展示） */
 .overlay { padding-bottom: 46px; }
@@ -427,12 +439,19 @@ body {
   background: linear-gradient(180deg, rgba(6, 9, 12, 0.94), rgba(6, 9, 12, 0));
 }
 
-/* 左下：自己（或同机时下方那一方） */
+/*
+ * 左下：自己（或同机时下方那一方）。
+ *   - 抬到版权声明之上（--notice-h 由 main.js 按声明的真实高度写入）
+ *   - **不要整行渐变背景**：那条横贯全屏的 bar 包围盒比头像本身高，
+ *     会把"给浮层预留的高度"算大、在宽屏上探进画布（实测差 2px）。
+ *     只留头像框，干净也不占地。
+ */
 .hud-bottom {
-  bottom: 0;
+  bottom: var(--notice-h, 48px);
   top: auto;
   justify-content: flex-start;
-  background: linear-gradient(0deg, rgba(6, 9, 12, 0.94), rgba(6, 9, 12, 0));
+  padding: 0 0 0 18px;
+  background: none;
 }
 
 .hud[hidden] { display: none; }

@@ -36,6 +36,7 @@ const guestPanel = document.getElementById('guestPanel');
 const lanUrlEl = document.getElementById('lanUrl');
 const roomCodeEl = document.getElementById('roomCode');
 const hostStatusEl = document.getElementById('hostStatus');
+const hostHintEl = document.getElementById('hostHint');
 const guestStatusEl = document.getElementById('guestStatus');
 const hostAddrEl = document.getElementById('hostAddr');
 const joinRoomEl = document.getElementById('joinRoom');
@@ -251,24 +252,51 @@ function clearResultTimer() {
   }
 }
 
+/** 下一帧重算尺寸（用于"浮层显隐刚刚变化"这种时机） */
+let remeasurePending = false;
+function scheduleRemeasure() {
+  if (remeasurePending) return;
+  remeasurePending = true;
+  requestAnimationFrame(() => {
+    remeasurePending = false;
+    measureAndResize();
+  });
+}
+
 async function openHost() {
   closeLink();
   const port0 = fallbackPort();
-  // 先把地址亮出来（用当前主机名兜底），别让面板空着
-  lanUrlEl.textContent = `http://${fallbackHost()}:${port0}/`;
+  // 先把地址亮出来（用当前地址兜底），别让面板空着
+  lanUrlEl.textContent = `${location.origin || `http://${fallbackHost()}:${port0}`}/`;
   roomCodeEl.textContent = '···';
   setStatus(hostStatusEl, '正在建房…');
 
-  let ip = fallbackHost();
-  let port = port0;
+  let url = lanUrlEl.textContent;
+  let localPage = true;
   try {
     const info = await lanInfo();
-    ip = info.ips?.[0] ?? ip;
-    port = info.port ?? port;
+    // lanInfo 已经判断过"页面是不是由本机服务器提供"：
+    // 是就给出真实局域网 IP，不是（GitHub Pages / 域名托管）就给出页面自己的地址，
+    // 绝不会再编一个 `xxx.github.io:5173` 这种根本不存在的地址。
+    if (info.url) url = info.url;
+    localPage = info.localPage !== false;
   } catch (err) {
-    console.warn('取局域网地址失败，用当前主机名兜底', err);
+    console.warn('取地址失败，用当前地址兜底', err);
   }
-  lanUrlEl.textContent = `http://${ip}:${port}/`;
+  lanUrlEl.textContent = url;
+
+  // 静态托管上页面不是本机提供的，托管商一般也不会转发 /ws：
+  // 先把话说清楚，别让人对着一个连不上的地址干等
+  if (!localPage) {
+    setStatus(
+      hostStatusEl,
+      '当前地址不是本机服务器，联机可能连不上',
+      'err',
+    );
+    hostHintEl.textContent =
+      '这台电脑要先跑 npm start，然后两台设备都打开它打印的局域网地址（例如 http://192.168.1.5:5173/）。'
+      + '静态托管（GitHub Pages / 域名托管）上没有 Node 服务器，联机用不了。';
+  }
 
   try {
     state.link = connectAsHost(null, {
@@ -496,26 +524,29 @@ function measureAndResize() {
   const h = (el) => (el && !el.hidden ? el.getBoundingClientRect().height : 0);
   const noticeEl = document.getElementById('licenseNotice');
 
-  // 顶部 HUD 的空间用 CSS padding 让出（见 styles.css 的 body），
-  // 所以这里的 reserveTop 保持 0 —— 否则会和 padding 重复计算，
-  // 内容总高超出可用高度后 flex 居中会把画布顶到 HUD 下面去。
+  // 浮层让位分两套，各管一段，别重复计算：
+  //   - CSS padding（--hud-top / --hud-bottom）：把**内容区**从浮层中间让出来，
+  //     保证 flex 居中不会把画布推到 HUD 下面
+  //   - view.reserveTop / reserveBottom：从**可用高度**里扣掉浮层与版权声明，
+  //     保证画布自身尺寸不越过它们
+  // 两套都设置时总高会偏小一点（画布略小），但绝不会被压住 —— 这条优先。
+  // +18 的余量是给 flex 居中取整的：只留 10px 时实测会差 1px 蹭上。
+  const GAP = 18;
+  const root = document.documentElement.style;
   const hudH = h(hud);
-  document.documentElement.style.setProperty('--hud-top', `${Math.round(hudH) + 10}px`);
-  view.reserveTop = 0;
+  const botH = h(hudBottom);
+  root.setProperty('--hud-top', `${Math.round(hudH) + GAP}px`);
+  root.setProperty('--hud-bottom', `${Math.round(botH) + GAP}px`);
+  view.reserveTop = hudH + GAP;
+  view.reserveBottomBase = botH + 10;
 
-  // 版权声明在文档流里、跟在画布后面：它的高度取决于画布宽度
-  // （画布变窄 → 说明折行变多 → 说明变高 → 画布又得变窄），是个循环依赖。
-  // 迭代三次就能收敛，比硬编码一个估值可靠。
-  let reserve = 0;
-  for (let i = 0; i < 3; i++) {
-    view.reserveBottom = reserve;
-    view.resize();
-    const next = h(noticeEl) + 14;
-    if (Math.abs(next - reserve) <= 1) break;
-    reserve = next;
-  }
-  view.reserveBottom = reserve;
+  // 版权声明是**固定**贴在视口最底层的浮层，高度只取决于视口宽度。
+  // 从可用高度里把它扣掉，画布就不会伸到它下面去。
+  const noticeH = h(noticeEl);
+  view.reserveBottom = noticeH + 14;
   view.resize();
+  // 底部头像抬到版权声明之上，两者永不重叠
+  root.setProperty('--notice-h', `${Math.round(noticeH) + 8}px`);
 
   // 夹取用的是新布局，把落点重新算一遍
   if (state.game) view.sync(state.game.state.board, { animate: false });
@@ -584,6 +615,10 @@ async function beginMatch({ humanSide, mode }) {
   resultEl.hidden = true;
   hud.hidden = false;
   paintHud();
+  // ⚠️ 必须在这里再算一次尺寸：建 view 的时候 HUD 还是隐藏的，
+  //    那时量到的高度是 0，留白就不够，底部头像会盖住棋盘最后一行。
+  //    HUD 显示后、（尤其 hudBottom 的显隐改变后）都要重算。
+  measureAndResize();
   refreshView({ animate: false });
 }
 
@@ -686,7 +721,11 @@ function paintHud() {
       : `${topCfg.subtitle} · ${lv.name}`;
 
   /* ---- 左下：玩家自己（同机模式用来指示该谁走）---- */
+  // 显隐变化会改变要给浮层留的高度，所以变化后要重算尺寸。
+  // 用 rAF 延后，避免 paintHud ↔ measureAndResize 互相递归。
+  const bottomWasHidden = hudBottom.hidden;
   hudBottom.hidden = !hotseat;
+  if (hudBottom.hidden !== bottomWasHidden) scheduleRemeasure();
   if (hotseat) {
     // 同机时下方永远是"先手方"（红），因为棋盘就是红在下
     const bottomCfg = FACTIONS[SOVIET];

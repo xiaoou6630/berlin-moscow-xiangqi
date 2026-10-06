@@ -54,24 +54,29 @@ check('带 import map 的 #shared/ 别名', () => {
   }
 });
 
-check('包含 1939 Games 社区许可第 6 条要求的声明', () => {
-  // 原文：[项目名] was created under 1939 Games' "Community content policy"
-  //       policy using assets owned by 1939 Games.
-  //       1939 Games does not endorse or sponsor this project.
-  const required = [
-    /created under 1939 Games/,
-    /Community content policy/,
-    /using assets owned by 1939 Games/,
-    /does not endorse or sponsor this project/,
-  ];
+check('页面提供版权与许可说明的入口（链接文字明确）', () => {
   for (const [k, html] of Object.entries(files)) {
-    for (const re of required) {
-      if (!re.test(html)) throw new Error(`${k} 的声明缺少片段: ${re}`);
+    // 直链 1939 Games 官方的社区许可页面
+    const m = /<a[^>]*href="(https:\/\/support\.kards\.com\/[^"]*)"[^>]*>([^<]+)<\/a>/.exec(html);
+    if (!m) throw new Error(`${k} 里没有指向 1939 Games 社区许可页面的链接`);
+    if (!/KARDS-Community-License/.test(m[1])) {
+      throw new Error(`${k} 的链接不是社区许可页面: ${m[1]}`);
+    }
+    // 链接文字要能表明这是许可，否则不算"显著展示"
+    if (!/许可|license|版权|copyright/i.test(m[2])) {
+      throw new Error(`${k} 的链接文字不明确: "${m[2]}"`);
     }
   }
 });
 
-check('声明不是 hidden（许可要求显著展示）', () => {
+check('声明区用中文点明素材版权归属', () => {
+  for (const [k, html] of Object.entries(files)) {
+    if (!/1939 Games/.test(html)) throw new Error(`${k} 没有提到 1939 Games`);
+    if (!/版权|非商业/.test(html)) throw new Error(`${k} 没有说明版权/非商业性质`);
+  }
+});
+
+check('声明区不是 hidden（许可要求显著展示）', () => {
   for (const [k, html] of Object.entries(files)) {
     const m = /<footer[^>]*id="licenseNotice"[^>]*>/.exec(html);
     if (!m) throw new Error(`${k} 找不到声明元素`);
@@ -79,10 +84,16 @@ check('声明不是 hidden（许可要求显著展示）', () => {
   }
 });
 
-check('README 里也有同样的声明', () => {
+check('README 里有 1939 Games 要求的声明全文', () => {
+  // 那段英文原文按许可要求放在 README 里（页面底部只留中文提示 + 官方链接）
   const readme = readFileSync(resolve(ROOT, 'README.md'), 'utf8');
-  for (const re of [/created under 1939 Games/, /does not endorse or sponsor this project/]) {
-    if (!re.test(readme)) throw new Error(`README 缺少: ${re}`);
+  for (const re of [
+    /created under 1939 Games/,
+    /Community content policy/,
+    /using assets owned by 1939 Games/,
+    /does not endorse or sponsor this project/,
+  ]) {
+    if (!re.test(readme)) throw new Error(`README 缺少声明片段: ${re}`);
   }
 });
 

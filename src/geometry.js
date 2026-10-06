@@ -38,35 +38,33 @@ export const FILE_GAP = 1;
 export const RANK_GAP = 1;
 
 /**
- * 卡面尺寸（单位）—— 与 public/src/theme.js 保持一致。
+ * 卡面尺寸（单位）—— 与 public/src/theme.js 共用同一来源。
  *
- * ⚠️ 这里是**几何的输入**，不是显示参数：棋盘四周的留白由它反推出来，
- * 所以两处必须同步（tools/test-narrow.js 会盯着结果）。
+ * ⚠️ 这里是**几何的输入**：棋盘四周留白与整幅比例都由它推导，
+ * 所以绝不能在别处再写一份（真的踩过：geometry 用 0.65 反推留白，
+ * 而 theme 仍按 0.86 画牌，最外两行的牌照样伸出画布）。
  *
- * 0.65 格宽 → 卡高 0.913 格。**卡高必须小于 1 个行距**，否则相邻两行的牌
- * 会叠在一起，而且最外两行必然伸出棋盘 —— 这正是之前"缩窗口后卡牌冒出
- * 屏幕"的根因（卡宽 0.86 时卡高 1.207 格 > 1 行）。
+ * 取 0.6：牌高 0.843 格、对角半径 0.730 格，都能被下面的留白容下。
  */
-export const CARD_WIDTH_UNITS = 0.65;
+export const CARD_WIDTH_UNITS = 0.6;
 export const CARD_ASPECT = 702 / 500;
+export const CARD_HEIGHT_UNITS = CARD_WIDTH_UNITS * CARD_ASPECT;
+/** 牌绕中心旋转时的外接圆半径（倒下动画用得到） */
+export const CARD_SPIN_RADIUS = Math.hypot(CARD_WIDTH_UNITS, CARD_HEIGHT_UNITS) / 2;
 
 /**
- * 棋盘四周留白（单位）。
+ * 棋盘四周留白（单位）——**由卡面尺寸推导**，不手工调。
  *
- * 牌以交叉点为中心摆放，会向外伸出半个卡宽 / 半个卡高，所以留白
- * **必须**不小于这个伸出量：
+ * 牌以交叉点为中心摆放，会向外伸出半个卡宽 / 半个卡高，所以：
+ *   纵向 MARGIN_Y ≥ 卡高/2      （上下各伸半张，一整张卡要放得下两倍留白）
+ *   横向 MARGIN_X ≥ 卡宽/2
+ * 这里各留一点余量给投影。
  *
- *   上沿 = MARGIN_Y − 卡高/2 ≥ 0
- *   下沿 = MARGIN_Y + 9 + 卡高/2 ≤ 画布高  ⟺  MARGIN_Y ≥ 卡高/2
- *
- * 于是约束是 MARGIN_Y ≥ 卡高/2 = 0.457，取 0.47 给投影留一点。
- *
- * 横向留白**不能随便取**：画布比例是 9 行 + 上下留白，宽度必须与之一致，
- * 否则 resize 时按宽度定尺寸会让牌伸出。所以由纵向留白反推：
- *   FRAME_ASPECT = (8 + 2·MARGIN_X) / (9 + 2·MARGIN_Y)
- * 取 MARGIN_X 使画布比例 ≈ 0.957（竖式，与之前观感一致）。
+ * 横向值同时决定整幅比例：
+ *   FRAME_ASPECT = (9 + 2·MARGIN_Y) / (8 + 2·MARGIN_X)
+ * 取 0.62 让整幅保持竖式（比例 ≈ 1.09），观感与之前一致。
  */
-export const MARGIN_Y = 0.47;
+export const MARGIN_Y = CARD_HEIGHT_UNITS / 2 + 0.06;
 export const MARGIN_X = 0.62;
 export const MARGIN = MARGIN_X; // 兼容旧引用
 

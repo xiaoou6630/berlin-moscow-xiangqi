@@ -107,6 +107,15 @@ export class BoardView {
     this.cardW = this.layout.filePitch * CARD_WIDTH_UNITS;
     // 整张卡面，不做任何裁剪
     this.cardH = this.cardW * CARD_RATIO;
+    // 硬约束：牌最多占画布短边的一定比例。
+    // 缩到极小窗口时，几何留白可能不够容下整张牌（比例是固定的），
+    // 这里兜底把牌整体缩小，保证"永远不伸出画布"这条铁律成立。
+    const maxCardW = Math.min(width, height) * 0.42;
+    if (this.cardW > maxCardW) {
+      const k = maxCardW / this.cardW;
+      this.cardW *= k;
+      this.cardH *= k;
+    }
   }
 
   /** 交叉点 → 画布像素 */

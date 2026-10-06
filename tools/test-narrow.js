@@ -173,30 +173,50 @@ async function probe(w, h, idx, opts = {}) {
       const noticeRect = document.getElementById('licenseNotice').getBoundingClientRect();
 
       /*
-       * 独立于精灵坐标的检查：卡面尺寸必须与几何留白自洽。
+       * 卡面尺寸自洽性。
        *
-       * 只看精灵坐标是不够的 —— 精灵的夹取也是用 v.cardW/v.cardH 算的，
-       * 卡片尺寸取错时会"自洽地"通过（真实踩过：geometry 用 0.65 反推留白，
-       * 而 theme 仍按 0.86 画牌，牌照样溢出）。
-       * 所以这里直接用 v.cardH 去比 几何留白*2 + 棋盘高 是否 >= 卡高 + 棋盘高，
-       * 也就是「最外两行的牌放得下吗」。
+       * 正常情况下牌应当放得进几何留白（留白是由卡面尺寸推导的）。
+       * 但极小窗口下 board-view 有一层"牌最多占画布短边 42%"的硬夹取，
+       * 那时牌会被整体缩小 —— 所以这条断言取两者中较宽松的那个：
+       * 要么几何留白放得下，要么硬夹取生效。两者都不成立才是真出错。
        */
-      const needH = v.cardH;                        // 上下各伸半张 = 整张卡高
-      const haveH = 2 * (v.layout.padding.top + v.layout.padding.bottom); // 上下留白合计
+      const needH = v.cardH;
+      const haveH = 2 * (v.layout.padding.top + v.layout.padding.bottom);
       const needW = v.cardW;
       const haveW = 2 * (v.layout.padding.left + v.layout.padding.right);
+      const clampCap = Math.min(W, H) * 0.42;
 
       return {
         W, H, checked, worst,
         card: [Number(v.cardW.toFixed(1)), Number(v.cardH.toFixed(1))],
-        // 留白 vs 卡面：正数表示放得下
         fitV: Number((haveH - needH).toFixed(1)),
         fitH: Number((haveW - needW).toFixed(1)),
+        clampCap: Number(clampCap.toFixed(1)),
+        // 牌是否在画布内（这条永远必须成立）
+        cardInside: (v.cardH <= H + 0.5) && (v.cardW <= W + 0.5),
         canvasRect: [Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height)],
+        noticeRect: [Math.round(noticeRect.left), Math.round(noticeRect.top), Math.round(noticeRect.right), Math.round(noticeRect.bottom)],
+        hudRect: [Math.round(hudRect.left), Math.round(hudRect.top), Math.round(hudRect.bottom)],
+        reserves: [Number(v.reserveTop.toFixed(1)), Number(v.reserveBottom.toFixed(1))],
+        bottomHudRect: (() => {
+          const b = document.getElementById('hudBottom');
+          if (!b || b.hidden) return null;
+          const br = b.getBoundingClientRect();
+          return [Math.round(br.left), Math.round(br.top), Math.round(br.right), Math.round(br.bottom)];
+        })(),
+        vv: [Math.round(window.visualViewport?.width ?? 0), Math.round(window.visualViewport?.height ?? 0)],
         outOfViewport: rect.left < -0.5 || rect.top < -0.5
           || rect.right > innerWidth + 0.5 || rect.bottom > innerHeight + 0.5,
         overlapsHud: rect.top < hudRect.bottom - 0.5 && rect.left < hudRect.right - 0.5,
         overlapsNotice: rect.bottom > noticeRect.top + 0.5,
+        // 底部"自己"头像也常压住棋盘最后一行（真的踩过），单列一条
+        overlapsBottomHud: (() => {
+          const b = document.getElementById('hudBottom');
+          if (!b || b.hidden) return false;
+          const br = b.getBoundingClientRect();
+          return !(rect.right < br.left || rect.left > br.right
+            || rect.bottom < br.top || rect.top > br.bottom);
+        })(),
         viewport: [innerWidth, innerHeight],
       };
     })()`);
@@ -266,17 +286,31 @@ for (let i = 0; i < SIZES.length; i++) {
       throw new Error(`画布 ${JSON.stringify(info.canvasRect)} 超出视口 ${JSON.stringify(info.viewport)}`);
     }
     if (info.overlapsHud) throw new Error('画布被顶部 HUD 压住');
-    if (info.overlapsNotice) throw new Error('画布被底部版权声明压住');
+    if (info.overlapsBottomHud) {
+      const b = info.bottomHudRect ? JSON.stringify(info.bottomHudRect) : '?';
+      throw new Error(`画布被底部"自己"头像压住：画布 ${JSON.stringify(info.canvasRect)} 头像 ${b}`);
+    }
+    if (info.overlapsNotice) {
+      throw new Error(
+        `画布被底部版权声明压住：画布 ${JSON.stringify(info.canvasRect)}`
+        + ` 声明 ${JSON.stringify(info.noticeRect)}`
+        + ` reserve=${JSON.stringify(info.reserves)}`
+        + ` hud=${JSON.stringify(info.hudRect)}`
+        + ` 视口 ${JSON.stringify(info.viewport)} vv=${JSON.stringify(info.vv)}`,
+      );
+    }
   });
-  await check(`${w}×${h}：卡面尺寸与几何留白自洽（防两处常量不同步）`, () => {
-    // 留白合计必须 >= 卡面尺寸；不足说明 theme.js 与 geometry.js 的
-    // CARD_WIDTH_UNITS 不一致了（这正是"手机上还是溢出"的真凶）
-    if (info.fitV < -0.5) {
-      throw new Error(`纵向放不下：留白合计比卡高少 ${(-info.fitV).toFixed(1)}px（卡 ${info.card.join('×')}）`);
+  await check(`${w}×${h}：卡面放得进留白，或已被硬夹取缩小`, () => {
+    // 几何留白放得下 → 正常；否则必须看到硬夹取真的把牌压小了
+    if (info.fitV >= -0.5 && info.fitH >= -0.5) return;
+    const clamped = info.card[0] <= info.clampCap + 0.5;
+    if (!clamped) {
+      throw new Error(
+        `牌 ${info.card.join('×')} 放不进留白（纵向差 ${(-info.fitV).toFixed(1)}px）` +
+        `，且没被夹到上限 ${info.clampCap}px`,
+      );
     }
-    if (info.fitH < -0.5) {
-      throw new Error(`横向放不下：留白合计比卡宽少 ${(-info.fitH).toFixed(1)}px`);
-    }
+    if (!info.cardInside) throw new Error('牌比画布还大');
   });
 }
 

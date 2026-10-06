@@ -36,15 +36,57 @@ export function currentHost() {
   return location.hostname || '127.0.0.1';
 }
 
-/** 拼出局域网地址，给房主展示 */
+/**
+ * 这个页面是不是**由本机服务器**提供的？
+ *
+ * 只有这种情况才能拿到真实的局域网 IP。判断依据是"主机名是不是本机地址"：
+ * 回环、私有网段、.local、或者干脆没有域名（file:// 打开）。
+ *
+ * 反例：`xxxx.maozi.io`、`xxx.github.io` 这类**真实域名托管** —— 页面是从
+ * 托管商那里来的，那台机器上并没有你的 Node 进程。以前不判断这一条，
+ * 于是界面上出现了 `http://xxx.github.io:5173/` 这种**根本不存在**的地址。
+ */
+export function isLocalPage() {
+  const host = location.hostname || '';
+  if (!host) return true; // file:// 打开
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (host === '127.0.0.1' || host.startsWith('127.')) return true;
+  if (host === '[::1]' || host === '::1') return true;
+  if (host.endsWith('.local')) return true;
+  if (/^10\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
+  return false;
+}
+
+/**
+ * 拼出"让朋友在浏览器打开"的地址。
+ *
+ * @returns {Promise<{ips: string[], port: number, localPage: boolean, url: string}>}
+ */
 export async function lanInfo() {
-  try {
-    const r = await fetch('/api/net', { cache: 'no-store' });
-    if (r.ok) return await r.json();
-  } catch {
-    /* 拿不到就算了 */
+  const localPage = isLocalPage();
+  if (localPage) {
+    try {
+      const r = await fetch('/api/net', { cache: 'no-store' });
+      if (r.ok) {
+        const data = await r.json();
+        const ip = data.ips?.[0] ?? currentHost();
+        const port = data.port ?? DEFAULT_PORT;
+        return { ...data, localPage, url: `http://${ip}:${port}/` };
+      }
+    } catch {
+      /* 没有服务器 */
+    }
   }
-  return { ips: [currentHost()], port: Number(location.port) || DEFAULT_PORT };
+  // 静态托管：页面自己的地址（托管商一般不会转发 /ws，所以联机通常不可用，
+  // 但至少给出的地址是真实存在的，而不是编出来的 :5173）
+  return {
+    ips: [currentHost()],
+    port: Number(location.port) || (location.protocol === 'https:' ? 443 : 80),
+    localPage,
+    url: location.origin ? `${location.origin}/` : '',
+  };
 }
 
 export class LanLink {
