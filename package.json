@@ -26,6 +26,7 @@
     "test:lan": "node tools/test-lan.js",
     "test:lan-addr": "node tools/test-lan-addr.js",
     "test:lan-flip": "node tools/test-lan-flip.js",
+    "test:lastmove-lan": "node tools/test-lastmove-lan.js",
     "test:viewport": "node tools/test-viewport.js",
     "test:peek": "node tools/test-peek.js",
     "test:idle": "node tools/test-idle.js",

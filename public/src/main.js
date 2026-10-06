@@ -1088,7 +1088,9 @@ function applyAndAdvance(from, to, mover, captured, { fromRemote = false } = {})
   board[from] = null;
   const record = { from, to, mover, captured };
   state.game.history.push(record);
-  // 给"上一手高亮"用；悔棋时下面会跟着回退
+  // 给"上一手高亮"用；悔棋时下面会跟着回退。
+  // ⚠️ 这里存的是**模型坐标**；显示坐标的换算由 BoardView.markLastMove 负责
+  //    （它要按当前是否翻转来转）。两处都转就会翻转两次、标记跑到镜像位置。
   state.game.lastMove = record;
   state.game.state.turn = state.game.state.turn === RED ? BLACK : RED;
 
