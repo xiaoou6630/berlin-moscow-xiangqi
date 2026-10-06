@@ -334,24 +334,26 @@ body {
 
 .banner[hidden] { display: none; }
 
-/* ---------------- 放大预览（悬停 / 点选棋子时）---------------- */
+/* ---------------- 放大预览（悬停 / 长按棋子时）---------------- */
 
 /*
- * 棋盘受 9×10 比例限制，卡面在 1400px 窗口下只有 ~45px 宽，字看不清。
- * 这里显示一张约 3 倍大的卡面，只用于看清，不参与对局。
+ * 棋盘受 9×10 比例限制，卡面在 1400px 窗口下只有 ~45px 宽，名字看不清。
+ * 这里显示一张放大的卡面，只用于看清，不参与对局。
  *
- * 窄屏（手机）时它是**文档流里的一块**，排在画布下面（见下面的媒体查询），
- * 高度由 main.js 量出来写进 --peek-h 并计入画布预留 —— 这样不会盖住棋盘。
- * 宽屏时改成浮层贴在棋盘旁边，因为旁边有富余空间。
+ * ⚠️ 一律用 position: fixed —— **绝不能占文档流**。
+ * 早先在窄屏把它排进文档流（跟在画布下面），结果每次弹出/收起都要重算布局，
+ * 走一遍 resize + sync（32 个精灵全部重建），手机上表现为"一点就整块刷新"。
+ * 现在是纯浮层，出现/消失对布局零影响。
  */
 .cardpeek {
+  position: fixed;
   z-index: 16;
-  width: min(168px, 46vw);
+  width: min(168px, 44vw);
   padding: 6px;
   border-radius: 8px;
-  background: rgba(8, 12, 16, 0.94);
+  background: rgba(8, 12, 16, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.65);
   pointer-events: none;
   animation: rise 0.12s ease-out;
 }
@@ -379,37 +381,15 @@ body {
   color: rgba(233, 228, 214, 0.6);
 }
 
-/* 宽屏：旁边有空间，浮在棋盘侧面（由 main.js 算 left/top） */
-@media (min-width: 1100px) {
-  .cardpeek { position: fixed; }
-}
-
-/* 窄屏：排在画布下方，横排（小图 + 文字），整块高度计入预留 */
+/* 窄屏用窄一点的卡面，方便塞进棋子旁边的空档 */
 @media (max-width: 1099px) {
   .cardpeek {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: auto;
-    max-width: min(420px, 92vw);
-    margin: 8px auto 0;
-    padding: 6px 12px 6px 6px;
+    width: min(132px, 36vw);
+    padding: 5px;
   }
 
-  .cardpeek img {
-    width: min(72px, 22vw);
-    flex: 0 0 auto;
-  }
-
-  .cardpeek-meta { text-align: left; }
-
-  .cardpeek-name {
-    margin-top: 0;
-    font-size: 14px;
-  }
-
-  .cardpeek-sub { font-size: 11px; }
+  .cardpeek-name { font-size: 12px; margin-top: 4px; }
+  .cardpeek-sub { font-size: 10px; }
 }
 
 /* ---------------- 版权声明（1939 Games 社区许可第 6 条要求显著展示）---------------- */

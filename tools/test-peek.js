@@ -160,6 +160,7 @@ console.log('peek');
         canvasW: window.__kards.state.view.layout.width,
         baseCanvasW: window.__peekBaseCanvasW,
         overlapsBoard: ov,
+        peekRect: [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)],
         inViewport: r.left >= -0.5 && r.top >= -0.5
           && r.right <= innerWidth + 0.5 && r.bottom <= innerHeight + 0.5,
         pointerEvents: getComputedStyle(el).pointerEvents,
@@ -176,9 +177,8 @@ console.log('peek');
       const ratio = shown.w / shown.cardW;
       if (ratio < 2.2) throw new Error(`预览只有 ${shown.w}px，棋盘上 ${shown.cardW}px，放大 ${ratio.toFixed(2)} 倍（应 ≥2.2）`);
     });
-    await check('预览不遮挡棋盘、不出视口', () => {
-      if (shown.overlapsBoard) throw new Error('预览压住了棋盘');
-      if (!shown.inViewport) throw new Error('预览超出视口');
+    await check('预览不出视口', () => {
+      if (!shown.inViewport) throw new Error(`预览 ${JSON.stringify(shown.peekRect)} 超出视口`);
     });
     await check('预览不吃点击（pointer-events: none）', () => {
       if (shown.pointerEvents !== 'none') throw new Error(`pointer-events = ${shown.pointerEvents}`);
@@ -267,14 +267,15 @@ console.log('peek');
       return -1;
     })()`);
 
-    // 手机靠点选触发：直接派发 pointerdown（走的是真人点击那条路径）
+    // 手机靠**长按**触发：按下 → 等过长按阈值 → 预览出现
     await page.ev(`(() => {
       const pos = (${screenPosOf})(${targetId});
       const c = document.getElementById('board');
+      window.__peekDown = { x: pos.x, y: pos.y };
       c.dispatchEvent(new PointerEvent('pointerdown', {
-        clientX: pos.x, clientY: pos.y, bubbles: true, pointerType: 'touch' }));
+        clientX: pos.x, clientY: pos.y, bubbles: true, pointerType: 'touch', isPrimary: true }));
     })()`);
-    await sleep(400);
+    await sleep(700); // 长按阈值 450ms
 
     const info = await page.ev(`(() => {
       const el = document.getElementById('cardPeek');
@@ -287,26 +288,88 @@ console.log('peek');
         hidden: false,
         w: Math.round(r.width),
         cardW: Math.round(v.cardW),
-        // 窄屏时预览排在画布**下方**（不压棋盘、不挡手指）
-        belowBoard: r.top >= c.bottom - 0.5,
         overlapsBoard: ov,
         canvas: [Math.round(c.left), Math.round(c.top), Math.round(c.right), Math.round(c.bottom)],
         peek: [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)],
         inViewport: r.left >= -0.5 && r.top >= -0.5
           && r.right <= innerWidth + 0.5 && r.bottom <= innerHeight + 0.5,
         name: document.getElementById('cardPeekName').textContent,
+        // 长按只是为了看牌，不该改变选中状态
+        selected: v.selected,
       };
     })()`);
 
-    await check('手机上点选棋子时弹出预览', () => {
-      if (info.hidden) throw new Error('预览没出现');
+    await check('手机上长按棋子时弹出预览', () => {
+      if (info.hidden) throw new Error('长按后预览没出现');
       if (!info.name) throw new Error('没有单位名');
     });
-    await check('手机上预览排在画布下方、不压棋盘', () => {
-      if (!info.belowBoard || info.overlapsBoard) {
-        throw new Error(
-          `预览 ${JSON.stringify(info.peek)} 与画布 ${JSON.stringify(info.canvas)} 重叠/不在下方`,
-        );
+    await check('手机上长按看牌不会选中棋子', () => {
+      if (info.selected != null) throw new Error(`长按把棋子选中了（selected=${info.selected}）`);
+    });
+    await check('手机上预览盖在棋盘上且不出视口', () => {
+      if (!info.inViewport) {
+        throw new Error(`预览 ${JSON.stringify(info.peek)} 超出视口`);
+      }
+    });
+
+    // 抬手（长按后抬手不该选子）—— 必须紧接在这次长按之后检查，
+    // 后面还会做别的手势，会把选中状态改掉
+    await page.ev(`(() => {
+      const c = document.getElementById('board');
+      const p = window.__peekDown;
+      c.dispatchEvent(new PointerEvent('pointerup', {
+        clientX: p.x, clientY: p.y, bubbles: true, pointerType: 'touch', isPrimary: true }));
+    })()`);
+    await sleep(200);
+    await check('长按抬手后仍然没有选中棋子', async () => {
+      const sel = await page.ev(`window.__kards.state.view.selected`);
+      if (sel != null) throw new Error(`抬手后 selected=${sel}`);
+    });
+
+    /*
+     * 关键回归（手机）：长按弹出预览时也不能重建精灵。
+     * 踩过：窄屏曾把预览排进文档流（跟在画布下面），每次弹出/收起都要
+     * 重算布局 → resize + sync（32 个精灵全部重建），手机上表现为"一点就刷新"。
+     */
+    const mobileCost = await page.ev(`(async () => {
+      const k = window.__kards, v = k.state.view;
+      const c = document.getElementById('board');
+      const r = c.getBoundingClientRect();
+      const b = k.state.game.state.board;
+      let id = -1;
+      for (let i = 0; i < 90; i++) if (b[i] && b[i].side === 'black') { id = i; break; }
+
+      // 先收起
+      v.selected = null; v.targets = new Set();
+      c.dispatchEvent(new PointerEvent('pointerdown', {
+        clientX: r.left + 3, clientY: r.top + 3, bubbles: true, pointerType: 'touch', isPrimary: true }));
+      c.dispatchEvent(new PointerEvent('pointerup', {
+        clientX: r.left + 3, clientY: r.top + 3, bubbles: true, pointerType: 'touch', isPrimary: true }));
+      await new Promise((z) => setTimeout(z, 400));
+
+      let syncs = 0;
+      const origSync = v.sync.bind(v);
+      v.sync = function (...a) { syncs++; return origSync(...a); };
+
+      const p = v.positionOf(id);
+      const sx = r.left + (p.px / v.layout.width) * r.width;
+      const sy = r.top + (p.py / v.layout.height) * r.height;
+      c.dispatchEvent(new PointerEvent('pointerdown', {
+        clientX: sx, clientY: sy, bubbles: true, pointerType: 'touch', isPrimary: true }));
+      await new Promise((z) => setTimeout(z, 700));
+      const shown = !document.getElementById('cardPeek').hidden;
+      c.dispatchEvent(new PointerEvent('pointerup', {
+        clientX: sx, clientY: sy, bubbles: true, pointerType: 'touch', isPrimary: true }));
+      await new Promise((z) => setTimeout(z, 200));
+
+      v.sync = origSync;
+      return { syncs, shown };
+    })()`);
+
+    await check('手机长按弹出预览时不会重建精灵', () => {
+      if (!mobileCost.shown) throw new Error('长按没弹出预览，这条测试没意义');
+      if (mobileCost.syncs > 0) {
+        throw new Error(`长按弹出预览时 view.sync 被调了 ${mobileCost.syncs} 次（应 0 次）`);
       }
     });
     await check('手机上预览不出视口', () => {
@@ -321,13 +384,14 @@ console.log('peek');
     const shot = await page.send('Page.captureScreenshot', { format: 'png' }, page.sessionId);
     writeFileSync(resolve(OUT, 'peek-mobile.png'), Buffer.from(shot.data, 'base64'));
 
-    // 点空白处收起
+    // 再点空白处收起
     await page.ev(`(() => {
       const c = document.getElementById('board');
       const r = c.getBoundingClientRect();
-      // 棋盘左上角外侧的空白
       c.dispatchEvent(new PointerEvent('pointerdown', {
-        clientX: r.left + 3, clientY: r.top + 3, bubbles: true, pointerType: 'touch' }));
+        clientX: r.left + 3, clientY: r.top + 3, bubbles: true, pointerType: 'touch', isPrimary: true }));
+      c.dispatchEvent(new PointerEvent('pointerup', {
+        clientX: r.left + 3, clientY: r.top + 3, bubbles: true, pointerType: 'touch', isPrimary: true }));
     })()`);
     await sleep(300);
     await check('手机点空白处收起预览', async () => {

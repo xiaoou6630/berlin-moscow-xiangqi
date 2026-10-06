@@ -545,22 +545,6 @@ function bindResize() {
 }
 
 /**
- * 预览块在文档流里占多高。
- *
- * ⚠️ 宽屏时它是 `position: fixed` 浮层（贴在棋盘旁边），**不占文档流**，
- * 所以预留必须是 0 —— 否则会出现"悬停一下棋盘就缩小一大截"的怪事。
- * 窄屏时它排在画布下方（relative），这时才要把它算进预留，
- * 否则会把画布顶出视口、盖住底部。
- */
-function peekFlowHeight() {
-  const el = cardPeekEl;
-  if (!el || el.hidden) return 0;
-  const pos = getComputedStyle(el).position;
-  if (pos === 'fixed' || pos === 'absolute') return 0;
-  return el.getBoundingClientRect().height;
-}
-
-/**
  * 按 HUD / 版权声明的实际高度给画布留出空间，然后重算
  */
 function measureAndResize() {
@@ -587,11 +571,9 @@ function measureAndResize() {
 
   // 版权声明是**固定**贴在视口最底层的浮层，高度只取决于视口宽度。
   // 从可用高度里把它扣掉，画布就不会伸到它下面去。
+  // （放大预览也是 fixed 浮层，且盖在棋盘上，所以完全不占预留。）
   const noticeH = h(noticeEl);
-  // 放大预览在窄屏时是文档流里排在画布下面的一块，也要扣掉，
-  // 否则它会把画布顶出视口；宽屏是浮层，peekFlowHeight() 会返回 0。
-  const peekH = peekFlowHeight();
-  view.reserveBottom = noticeH + peekH + 14;
+  view.reserveBottom = noticeH + 14;
   view.resize();
   // 底部头像抬到版权声明之上，两者永不重叠
   root.setProperty('--notice-h', `${Math.round(noticeH) + 8}px`);
@@ -816,7 +798,100 @@ function paintHud() {
 
 /* ---------------- 交互 ---------------- */
 
+/**
+ * 长按检测：按住棋子约 LONG_PRESS_MS 就弹出放大预览。
+ *
+ * 手机上不能靠 hover，点选又只能看清"该走的一方"的棋子
+ * （对方的子点不了，也就看不到牌面），所以用长按 —— 任何棋子都能长按看清。
+ *
+ * 长按之后抬起时**不能再触发选子**，否则想看一眼牌面就把子选中了。
+ */
+const LONG_PRESS_MS = 450;
+/** 手指挪动超过这个距离就当成滑动，取消长按 */
+const LONG_PRESS_SLOP = 10;
+let longPress = null;
+
+function cancelLongPress() {
+  if (!longPress) return;
+  clearTimeout(longPress.timer);
+  longPress = null;
+}
+
+function onCanvasPointerDown(ev) {
+  // 触摸/触控笔：起长按计时；鼠标交给 hover，不用长按
+  if (ev.pointerType !== 'touch' && ev.pointerType !== 'pen') return;
+  cancelLongPress();
+  const view = state.view;
+  if (!view || !state.game) return;
+  const rect = canvas.getBoundingClientRect();
+  const px = ((ev.clientX - rect.left) / rect.width) * view.layout.width;
+  const py = ((ev.clientY - rect.top) / rect.height) * view.layout.height;
+  const id = view.pieceAt(px, py);
+  if (id == null) return;
+  longPress = {
+    id,
+    x: ev.clientX,
+    y: ev.clientY,
+    moved: false,
+    fired: false,
+    timer: setTimeout(() => {
+      if (!longPress) return;
+      longPress.fired = true;
+      // 长按只用来"看牌"，不改选中状态，免得误操作
+      showCardPeek(id);
+      canvas.style.cursor = 'default';
+    }, LONG_PRESS_MS),
+  };
+}
+
+function onCanvasPointerMove(ev) {
+  if (!longPress || longPress.fired) return;
+  if (Math.abs(ev.clientX - longPress.x) > LONG_PRESS_SLOP
+    || Math.abs(ev.clientY - longPress.y) > LONG_PRESS_SLOP) {
+    longPress.moved = true;
+    cancelLongPress();
+  }
+}
+
+function onCanvasPointerUp() {
+  const wasFired = longPress?.fired ?? false;
+  cancelLongPress();
+  // 长按已经弹过预览 → 这次抬手不算点选
+  return wasFired;
+}
+
+/** 兜底：触摸被系统打断（来电、手势返回）时清理计时器 */
+function onCanvasPointerCancel() {
+  cancelLongPress();
+}
+
 canvas.addEventListener('pointerdown', (ev) => {
+  onCanvasPointerDown(ev);
+  // 长按中/刚长按完的这一次抬手不该被当成点选，交给 pointerup 判断
+  if (longPress?.fired) return;
+
+  if (!state.game || state.over || state.aiThinking) return;
+  // 触摸时先只起计时，真正的点选延到 pointerup 判断（见下面 pointerup 处理）
+  if (ev.pointerType === 'touch' || ev.pointerType === 'pen') return;
+
+  handleTap(ev);
+});
+
+canvas.addEventListener('pointermove', onCanvasPointerMove);
+canvas.addEventListener('pointercancel', onCanvasPointerCancel);
+
+canvas.addEventListener('pointerup', (ev) => {
+  if (ev.pointerType === 'touch' || ev.pointerType === 'pen') {
+    const wasLong = onCanvasPointerUp();
+    if (wasLong) return; // 长按看牌，不选子
+    handleTap(ev);
+    return;
+  }
+  onCanvasPointerUp();
+});
+
+/** 点选/走子的实际处理（鼠标与触摸共用） */
+function handleTap(ev) {
   if (!state.game || state.over || state.aiThinking) return;
 
   const hotseat = state.playMode === 'hotseat';
@@ -851,27 +926,24 @@ canvas.addEventListener('pointerdown', (ev) => {
         .filter((m) => m.from === id)
         .map((m) => m.to),
     );
-    // 点选同时也是"放大看清"的触发方式（手机没有 hover）
-    showCardPeek(id);
   } else {
     state.view.selected = null;
     state.view.targets = new Set();
-    // 点到空白/不可操作的棋子：收起预览（手机上用它关掉）
+    // 点到空白/对方的子：收起预览（手机上用它关掉）
     hideCardPeek();
   }
-});
+}
 
-/* ---------------- 放大预览：悬停 / 点选时看清卡面 ---------------- */
+/* ---------------- 放大预览：悬停 / 长按棋子时看清卡面 ---------------- */
 
 /*
  * 棋盘受 9×10 比例限制，卡面在 1400px 窗口下只有 ~45px 宽，字太小。
- * 这里在棋盘外侧浮出一张约 3 倍大的卡面。做成 DOM 浮层，所以
- * 不参与棋盘布局，也不会像放大卡面那样造成溢出。
+ * 这里浮出一张约 3 倍大的卡面盖在棋盘上，只用于看清，不参与对局。
  *
- * 两种触发方式：
- *   - 桌面：鼠标悬停在棋子上（有 hover 才绑定）
- *   - 手机：点选棋子时弹出（没有 hover），并在被点棋子的**上方**显示，
- *           免得手指正好压住预览；点空白处收起。
+ * 触发方式：
+ *   - 桌面：鼠标悬停在棋子上
+ *   - 手机 / 触控笔：**长按**棋子（点选只能看到"该走那一方"的棋子，
+ *     对方的子点不了，长按才能看清任何一张牌），长按不改变选中状态
  */
 let peekId = null;
 
@@ -898,77 +970,73 @@ function showCardPeek(id) {
   cardPeekSub.textContent = `${PIECE_LABELS[sprite.type] ?? ''} · ${cfg.name}`;
   cardPeekEl.hidden = false;
   placeCardPeek();
-  // ⚠️ 只有**窄屏**才需要重算：那时预览排在画布下方、占文档流高度。
-  //    宽屏预览是 fixed 浮层，不影响布局；早先无条件重算，结果悬停一下
-  //    就走一遍 resize + sync（重建 32 个精灵、重播出场动画），
-  //    观感上就是"整个棋局重新渲染了一遍"。
-  if (wasHidden && cardPeekTakesFlow()) scheduleRemeasure();
+  // ⚠️ 预览是纯浮层（position: fixed），**直接盖在棋盘上**，
+  //    出现/消失都不影响布局，所以这里绝不能重算尺寸 ——
+  //    一旦重算就会走 resize + sync（32 个精灵全部重建、出场动画重播），
+  //    表现就是"一点就整块刷新"。这里保持什么都不做。
+  void wasHidden;
 }
 
 function hideCardPeek() {
   if (peekId == null && cardPeekEl.hidden) return;
   peekId = null;
   cardPeekEl.hidden = true;
-  if (cardPeekTakesFlow()) scheduleRemeasure();
+  // 同上：纯浮层，不碰布局
 }
-
-/**
- * 预览是不是占了文档流（窄屏排在画布下方）。
- * 宽屏是 fixed 浮层 → 不占流 → 不需要重算布局。
- */
-function cardPeekTakesFlow() {
-  if (!cardPeekEl || cardPeekEl.hidden) {
-    // 隐藏时用视口宽度判断（与 CSS 媒体查询一致）
-    return window.innerWidth < 1100;
-  }
-  const pos = getComputedStyle(cardPeekEl).position;
-  return pos !== 'fixed' && pos !== 'absolute';
-}
-
-/** 宽屏（旁边有空间）才做浮层定位；窄屏靠 CSS 排在画布下方 */
-const isWideLayout = () => window.innerWidth >= 1100;
 
 /**
  * 摆放预览。
- * 只在宽屏时生效：贴在**被悬停/点选的那个棋子**旁边，不挡棋子、不挡棋盘。
- * 窄屏走 CSS（画布下方横排），位置由布局决定，这里不用管。
+ *
+ * 一律贴着**被悬停/点选的那个棋子**放，允许盖在棋盘上（用户要求：
+ * 直接在棋子旁边覆盖显示，不用去找棋盘外的空位）。
+ * 依次试四个方向，挑一个尽量不挡住"这颗棋子"的位置。
  */
 function placeCardPeek() {
   if (cardPeekEl.hidden || peekId == null) return;
-  if (!isWideLayout()) {
-    // 清掉可能残留的内联定位，交给 CSS
-    cardPeekEl.style.left = '';
-    cardPeekEl.style.top = '';
-    return;
-  }
   const view = state.view;
   const sprite = view?.sprites.get(peekId);
   if (!sprite) return;
 
   const cRect = canvas.getBoundingClientRect();
   const pRect = cardPeekEl.getBoundingClientRect();
-  const gap = 12;
+  const gap = 10;
   const vw = window.innerWidth;
   const vh = window.innerHeight;
+  const pad = 6;
 
   // 棋子中心换算成屏幕坐标（画布是等比缩放的，按比例换算）
   const sx = cRect.left + (sprite.x / view.layout.width) * cRect.width;
   const sy = cRect.top + (sprite.y / view.layout.height) * cRect.height;
+  // 棋子在屏幕上的大致半径（用来判断会不会挡住它）
+  const halfW = (view.cardW / 2 / view.layout.width) * cRect.width;
+  const halfH = (view.cardH / 2 / view.layout.height) * cRect.height;
 
-  // 横向：优先棋盘右侧，其次左侧 —— 都比"压在棋盘上"好
-  const rightSide = cRect.right + gap;
-  const leftSide = cRect.left - gap - pRect.width;
-  let left;
-  if (rightSide + pRect.width <= vw - 8) left = rightSide;
-  else if (leftSide >= 8) left = leftSide;
-  else left = Math.min(Math.max(sx - pRect.width / 2, 8), Math.max(8, vw - pRect.width - 8));
+  // 四个候选位置：上 / 下 / 右 / 左
+  const cands = [
+    { left: sx - pRect.width / 2, top: sy - halfH - gap - pRect.height },
+    { left: sx - pRect.width / 2, top: sy + halfH + gap },
+    { left: sx + halfW + gap, top: sy - pRect.height / 2 },
+    { left: sx - halfW - gap - pRect.width, top: sy - pRect.height / 2 },
+  ];
 
-  // 纵向：跟着棋子，夹进视口
-  let top = sy - pRect.height / 2;
-  top = Math.min(Math.max(top, 8), Math.max(8, vh - pRect.height - 8));
+  const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi));
+  let best = null;
+  let bestCost = Infinity;
+  for (const c of cands) {
+    const left = clamp(c.left, pad, vw - pRect.width - pad);
+    const top = clamp(c.top, pad, vh - pRect.height - pad);
+    // 代价：压住这颗棋子的面积越小越好
+    const ovW = Math.max(0, Math.min(left + pRect.width, sx + halfW) - Math.max(left, sx - halfW));
+    const ovH = Math.max(0, Math.min(top + pRect.height, sy + halfH) - Math.max(top, sy - halfH));
+    const cost = ovW * ovH;
+    if (cost < bestCost) {
+      bestCost = cost;
+      best = { left, top };
+    }
+  }
 
-  cardPeekEl.style.left = `${Math.round(left)}px`;
-  cardPeekEl.style.top = `${Math.round(top)}px`;
+  cardPeekEl.style.left = `${Math.round(best.left)}px`;
+  cardPeekEl.style.top = `${Math.round(best.top)}px`;
 }
 
 /** 鼠标在棋盘上移动：命中棋子就预览，离开就收起（仅桌面） */
