@@ -898,15 +898,31 @@ function showCardPeek(id) {
   cardPeekSub.textContent = `${PIECE_LABELS[sprite.type] ?? ''} · ${cfg.name}`;
   cardPeekEl.hidden = false;
   placeCardPeek();
-  // 窄屏时这块占文档流高度，出现/消失都要重算棋盘尺寸
-  if (wasHidden) scheduleRemeasure();
+  // ⚠️ 只有**窄屏**才需要重算：那时预览排在画布下方、占文档流高度。
+  //    宽屏预览是 fixed 浮层，不影响布局；早先无条件重算，结果悬停一下
+  //    就走一遍 resize + sync（重建 32 个精灵、重播出场动画），
+  //    观感上就是"整个棋局重新渲染了一遍"。
+  if (wasHidden && cardPeekTakesFlow()) scheduleRemeasure();
 }
 
 function hideCardPeek() {
   if (peekId == null && cardPeekEl.hidden) return;
   peekId = null;
   cardPeekEl.hidden = true;
-  scheduleRemeasure();
+  if (cardPeekTakesFlow()) scheduleRemeasure();
+}
+
+/**
+ * 预览是不是占了文档流（窄屏排在画布下方）。
+ * 宽屏是 fixed 浮层 → 不占流 → 不需要重算布局。
+ */
+function cardPeekTakesFlow() {
+  if (!cardPeekEl || cardPeekEl.hidden) {
+    // 隐藏时用视口宽度判断（与 CSS 媒体查询一致）
+    return window.innerWidth < 1100;
+  }
+  const pos = getComputedStyle(cardPeekEl).position;
+  return pos !== 'fixed' && pos !== 'absolute';
 }
 
 /** 宽屏（旁边有空间）才做浮层定位；窄屏靠 CSS 排在画布下方 */

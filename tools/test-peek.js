@@ -191,6 +191,51 @@ console.log('peek');
       }
     });
 
+    /*
+     * 关键回归：悬停弹出预览时**不能重建精灵 / 重绘棋局**。
+     * 踩过：宽屏预览是 fixed 浮层、不占文档流，但代码无条件 scheduleRemeasure()，
+     * 于是悬停一下就走一遍 resize + sync（32 个精灵全部重建、出场动画重播），
+     * 用户看到的就是"整个棋局重新渲染了一遍"。
+     */
+    const hoverCost = await page.ev(`(async () => {
+      const k = window.__kards, v = k.state.view;
+      const c = document.getElementById('board');
+      const r = c.getBoundingClientRect();
+      const b = k.state.game.state.board;
+      let id = -1;
+      for (let i = 0; i < 90; i++) if (b[i] && b[i].side === 'red') { id = i; break; }
+
+      // 先离开棋盘，确保预览是收起状态
+      c.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+      await new Promise((z) => setTimeout(z, 400));
+
+      let syncs = 0;
+      let renders = 0;
+      const origSync = v.sync.bind(v);
+      const origRender = v.render.bind(v);
+      v.sync = function (...a) { syncs++; return origSync(...a); };
+      v.render = function (...a) { renders++; return origRender(...a); };
+
+      const p = v.positionOf(id);
+      const sx = r.left + (p.px / v.layout.width) * r.width;
+      const sy = r.top + (p.py / v.layout.height) * r.height;
+      c.dispatchEvent(new MouseEvent('mousemove', { clientX: sx, clientY: sy, bubbles: true }));
+      for (let i = 0; i < 30; i++) await new Promise((z) => requestAnimationFrame(z));
+
+      v.sync = origSync;
+      v.render = origRender;
+      return { syncs, renders, peekShown: !document.getElementById('cardPeek').hidden };
+    })()`);
+
+    await check('悬停弹出预览确实显示了', () => {
+      if (!hoverCost.peekShown) throw new Error('预览没显示，这条测试没意义');
+    });
+    await check('悬停弹出预览时不会重建精灵（不重渲染整个棋局）', () => {
+      if (hoverCost.syncs > 0) {
+        throw new Error(`悬停时 view.sync 被调了 ${hoverCost.syncs} 次（应 0 次）`);
+      }
+    });
+
     mkdirSync(OUT, { recursive: true });
     const shot = await page.send('Page.captureScreenshot', { format: 'png' }, page.sessionId);
     writeFileSync(resolve(OUT, 'peek-desktop.png'), Buffer.from(shot.data, 'base64'));
