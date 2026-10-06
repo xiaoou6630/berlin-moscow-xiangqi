@@ -57,20 +57,42 @@ export class BoardView {
      */
     this.lastMove = null;
 
+    /**
+     * 顶部 / 底部为浮层预留的像素（HUD 与版权声明）。
+     * main.js 在 resize 前设置，避免画布被浮层压住。
+     */
+    this.reserveTop = 0;
+    this.reserveBottom = 0;
+
     this.resize();
   }
 
   /**
    * 自适应尺寸。只做**等比缩放**：高度恒等于宽度 × FRAME_ASPECT，
    * 所以棋盘和卡牌在任何窗口下都不会被拉伸。
+   *
+   * ⚠️ 手机上有三个坑，都必须处理，否则会出现"电脑上好好的、手机上溢出"：
+   *   1. 动态视口：地址栏收起/弹出会改变可视高度，但不一定触发 window 的 resize
+   *      → 额外监听 visualViewport
+   *   2. 旋转屏：orientationchange 触发时布局还没完成，量到的还是旧尺寸
+   *      → 延后重算（由 main.js 的 debounce 统一处理）
+   *   3. 顶部 HUD 与底部版权声明是浮层，会盖住画布
+   *      → 从可用高度里扣掉，而不是只用 innerHeight
    */
   resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    const vw = window.innerWidth || 1200;
-    const vh = window.innerHeight || 900;
+    // visualViewport 比 innerWidth/innerHeight 更贴近"真正看得见的区域"
+    const vv = window.visualViewport;
+    const vw = Math.round(vv?.width || window.innerWidth || 1200);
+    const vh = Math.round(vv?.height || window.innerHeight || 900);
     const inset = Math.max(BOARD_INSET_MIN, Math.min(vw, vh) * BOARD_INSET_RATIO);
+
+    // 给浮层让位：HUD 在顶部、版权声明在底部，它们是固定定位、会压在画布上
+    const reserveTop = this.reserveTop ?? 0;
+    const reserveBottom = this.reserveBottom ?? 0;
+
     const availW = Math.max(120, vw - inset * 2);
-    const availH = Math.max(120, vh - inset * 2);
+    const availH = Math.max(120, vh - reserveTop - reserveBottom - inset * 2);
     // 取能同时放下的最大等比尺寸
     const width = Math.min(availW, availH / FRAME_ASPECT);
     const height = width * FRAME_ASPECT;

@@ -198,16 +198,29 @@ check('BoardView 构造后画布按 DPR 缩放', () => {
   assert.equal(view.layout.width, cssW);
 });
 
-check('卡牌尺寸：完整卡面（不裁剪），且不过度压住邻路', () => {
+check('卡牌尺寸：完整卡面（不裁剪），且能放进几何留白', () => {
   const canvas = makeCanvas();
   const view = new BoardView(canvas, { humanSide: 'red', factionCards: { red: {}, black: {} } });
   assert.ok(Math.abs(view.cardW - view.layout.filePitch * CARD_WIDTH_UNITS) < 1e-9);
   // 不裁剪 → 牌高严格等于 牌宽 × 原始比例
   assert.ok(Math.abs(view.cardH - view.cardW * CARD_RATIO) < 1e-9, '卡面必须完整，不能裁剪');
-  // 牌高应接近线距（允许 1.6 倍以内的重叠），太大就会糊成一片
+
+  /*
+   * ⚠️ 这里曾经断言 "牌高/线距 ≥ 1.0"，那个假设是错的：
+   * 牌高必须 **小于一个线距**，否则：
+   *   1. 同路相邻两行的牌会叠在一起（上牌压住下牌的名称栏）
+   *   2. 最外两行的牌必然伸出棋盘留白 → 窄窗口 / 手机上溢出屏幕
+   * 所以改成断言"小于线距"，并额外验证它确实放得进几何留白。
+   */
   const ratio = view.cardH / view.layout.rankPitch;
-  assert.ok(ratio <= 1.62, `牌高/线距 = ${ratio.toFixed(3)} 过大，会明显糊住相邻一路`);
-  assert.ok(ratio >= 1.0, `牌高/线距 = ${ratio.toFixed(3)} 过小，棋子显得稀疏`);
+  assert.ok(ratio < 1.0, `牌高/线距 = ${ratio.toFixed(3)}，必须 < 1 否则最外两行会溢出`);
+  assert.ok(ratio > 0.55, `牌高/线距 = ${ratio.toFixed(3)} 过小，棋子显得稀疏`);
+
+  // 留白合计必须容得下卡面（与 geometry.js 的 MARGIN_Y 自洽）
+  const padV = view.layout.padding.top + view.layout.padding.bottom;
+  const padH = view.layout.padding.left + view.layout.padding.right;
+  assert.ok(padV >= view.cardH - 0.5, `纵向留白 ${padV.toFixed(1)}px 放不下卡高 ${view.cardH.toFixed(1)}px`);
+  assert.ok(padH >= view.cardW - 0.5, `横向留白 ${padH.toFixed(1)}px 放不下卡宽 ${view.cardW.toFixed(1)}px`);
 });
 
 check('任何窗口尺寸下都只做等比缩放，绝不拉伸', () => {

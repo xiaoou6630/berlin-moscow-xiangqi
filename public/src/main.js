@@ -453,7 +453,73 @@ function bindControls() {
 
   hotseatChk?.addEventListener('change', paintMenuSelection);
 
-  window.addEventListener('resize', () => state.view?.resize());
+  bindResize();
+}
+
+/**
+ * 尺寸变化时重算棋盘。
+ *
+ * 手机上"电脑端正常、手机端溢出"的根因就在这里：只监听 window 的 resize
+ * 是不够的 ——
+ *   - 地址栏收起/弹出改变可视高度，不一定触发 resize → 监听 visualViewport
+ *   - orientationchange 触发时布局尚未完成，量到的是旧尺寸 → 延后重算
+ *   - 字体/图片加载完也会让布局落定 → load 事件再算一次
+ * 所以这里统一用一个防抖重算，并在几个时机都补一次。
+ */
+function bindResize() {
+  let timer = 0;
+  const remeasure = () => {
+    clearTimeout(timer);
+    // 立即按当前值算一次，再延后补一次（等布局真正落定）
+    measureAndResize();
+    timer = setTimeout(measureAndResize, 180);
+    timer = setTimeout(() => {
+      measureAndResize();
+    }, 450);
+  };
+
+  window.addEventListener('resize', remeasure);
+  window.addEventListener('orientationchange', remeasure);
+  window.addEventListener('pageshow', remeasure);
+  // 动态视口：地址栏、软键盘
+  window.visualViewport?.addEventListener('resize', remeasure);
+  window.visualViewport?.addEventListener('scroll', remeasure);
+  // 首次布局落定后再算一次，别让"刚建好时量到的错尺寸"留下来
+  window.addEventListener('load', remeasure);
+  remeasure();
+}
+
+/** 按 HUD / 版权声明的实际高度给画布留出空间，然后重算 */
+function measureAndResize() {
+  const view = state.view;
+  if (!view) return;
+  const h = (el) => (el && !el.hidden ? el.getBoundingClientRect().height : 0);
+  const noticeEl = document.getElementById('licenseNotice');
+
+  // 顶部 HUD 的空间用 CSS padding 让出（见 styles.css 的 body），
+  // 所以这里的 reserveTop 保持 0 —— 否则会和 padding 重复计算，
+  // 内容总高超出可用高度后 flex 居中会把画布顶到 HUD 下面去。
+  const hudH = h(hud);
+  document.documentElement.style.setProperty('--hud-top', `${Math.round(hudH) + 10}px`);
+  view.reserveTop = 0;
+
+  // 版权声明在文档流里、跟在画布后面：它的高度取决于画布宽度
+  // （画布变窄 → 说明折行变多 → 说明变高 → 画布又得变窄），是个循环依赖。
+  // 迭代三次就能收敛，比硬编码一个估值可靠。
+  let reserve = 0;
+  for (let i = 0; i < 3; i++) {
+    view.reserveBottom = reserve;
+    view.resize();
+    const next = h(noticeEl) + 14;
+    if (Math.abs(next - reserve) <= 1) break;
+    reserve = next;
+  }
+  view.reserveBottom = reserve;
+  view.resize();
+
+  // 夹取用的是新布局，把落点重新算一遍
+  if (state.game) view.sync(state.game.state.board, { animate: false });
+  paintHud();
 }
 
 /* ---------------- 对局 ---------------- */

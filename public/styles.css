@@ -22,14 +22,32 @@ body {
   font: 14px/1.6 var(--font);
   color: var(--ink);
   display: flex;
+  /* 竖向排布：画布居中，版权声明跟在它下面（普通文档流）。
+     ⚠️ 不能让声明用 position:fixed —— 那会压住左下角的"自己"头像。 */
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /*
+   * `safe center`：内容放得下时居中；放不下时退化成 flex-start 并可滚动。
+   * 用普通 center 时，超高内容会被上下各截掉一半，画布就钻到顶部 HUD 下面去了
+   * （小屏幕 + 版权声明一起出现时必现）。
+   */
+  justify-content: safe center;
+  /*
+   * 顶部 HUD 是固定定位的浮层，用 padding 给它让出整块空间。
+   * ⚠️ 别再把这个高度同时算进画布的 reserveTop —— 那样内容总高会超过可用高度，
+   * flex 居中就会把画布顶到 HUD 下面（小屏幕上必现）。
+   * 顶部实际高度由 main.js 按 HUD 量出来写进 --hud-top。
+   */
+  padding: var(--hud-top, 86px) 0 6px;
+  overflow: auto;
 }
 
 #board {
   display: block;
   width: auto;
   height: auto;
+  /* 别被 flex 压缩，否则画布会变形 */
+  flex: 0 0 auto;
   box-shadow: 0 0 60px rgba(0, 0, 0, 0.9) inset, 0 18px 60px rgba(0, 0, 0, 0.7);
 }
 
@@ -318,13 +336,18 @@ body {
 
 /* ---------------- 版权声明（1939 Games 社区许可第 6 条要求显著展示）---------------- */
 
+/*
+ * 声明用**正常文档流**，跟在画布下面。
+ *
+ * 之前是 position:fixed 贴底，结果压住了左下角的"自己"头像
+ * （两人同机时那里有个头像框）。放文档流里就不会盖任何东西。
+ * 高度由 main.js 的 measureAndResize() 量出来并从画布可用高度里扣掉。
+ */
 .notice {
-  position: fixed;
-  left: 50%;
-  bottom: 6px;
-  transform: translateX(-50%);
-  z-index: 12;
-  max-width: min(920px, 94vw);
+  flex: 0 0 auto;
+  /* 宽度不能超过父容器的内容区，否则窄屏上会横向溢出 */
+  max-width: min(920px, 100%);
+  margin: 8px auto 10px;
   padding: 5px 14px;
   font-size: 11px;
   line-height: 1.5;
@@ -334,8 +357,6 @@ body {
   background: rgba(6, 9, 12, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 5px;
-  pointer-events: none;
-  backdrop-filter: blur(2px);
 }
 
 .notice b { color: rgba(233, 228, 214, 0.86); font-weight: 600; }

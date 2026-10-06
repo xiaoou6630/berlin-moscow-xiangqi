@@ -1,12 +1,16 @@
 /**
  * 主题数据：阵营、棋子 → 卡面映射、初始布局。
  *
- * 素材由 tools/build-assets.py 从 苏联/ 与 德国/ 生成到 public/assets/。
- * 苏联（红方）在下；德国（黑方）在上。
+ * 素材由 tools/build-assets.py 从 art/soviet/ 与 art/germany/ 生成到 public/assets/。
  *
- * 注意：苏联给的素材里没有"相/象"这一路，暂时用"战术撤退"顶替（见 soviet.elephant）。
- *       德军与苏军的全部 7 种棋子都需要有图，否则该子无法显示。
+ * ⚠️ 卡面尺寸（CARD_WIDTH_UNITS / CARD_RATIO）**直接复用 src/geometry.js 的定义**，
+ * 不在这里另写一份：棋盘四周的留白是由卡面尺寸反推出来的，
+ * 两处一旦不同步，最外两行的牌就会伸出画布（曾经真的发生过：
+ * geometry 改 0.65 而 theme 还是 0.86，结果手机上照样溢出）。
  */
+
+// 卡面尺寸必须与几何共用同一来源，改一处即两处生效
+export { CARD_ASPECT as CARD_RATIO, CARD_WIDTH_UNITS } from '#shared/geometry.js';
 
 export const SOVIET = 'soviet';
 export const GERMANY = 'germany';
@@ -49,15 +53,7 @@ export const FACTIONS = {
   },
 };
 
-/** 卡面原始比例（500 × 702） */
-export const CARD_RATIO = 702 / 500;
-
-/**
- * 卡面不做任何裁剪，整张显示（名称栏、数值栏都在）。
- * 牌高 = 牌宽 × 1.404。牌宽取 0.86 格 → 牌高 ≈ 1.21 格，
- * 相邻两线约重叠 1/5，名称与数值都清楚，插画也还认得出。
- */
-export const CARD_WIDTH_UNITS = 0.86;
+/** 卡面尺寸见文件顶部：从 geometry.js 复用，这里不再重复定义 */
 
 /**
  * 棋盘四周留白：占较短边的比例。整体收一点，不要顶满屏幕。

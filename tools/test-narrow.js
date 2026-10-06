@@ -79,7 +79,7 @@ function png(rgba, w, h) {
 mkdirSync(OUT, { recursive: true });
 
 /** 在指定窗口尺寸下开局，返回每张牌四角的越界量 */
-async function probe(w, h, idx) {
+async function probe(w, h, idx, opts = {}) {
   const port = BASE_PORT + idx;
   const profile = resolve(ROOT, `.edge-narrow-${process.pid}-${idx}`);
   const edge = spawn(EDGE, [
@@ -137,9 +137,23 @@ async function probe(w, h, idx) {
     await send('Page.navigate', { url: 'http://127.0.0.1:5173/?faction=soviet&level=1&auto=1' }, S);
     await sleep(5200);
 
+    // 可选：模拟手机旋转 / 视口变化，验证会重算
+    if (opts.rotateTo) {
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: opts.rotateTo[0],
+        height: opts.rotateTo[1],
+        deviceScaleFactor: opts.rotateTo[2] ?? 1,
+        mobile: true,
+      }, S);
+      // 等防抖重算落地（main.js 里是 180ms + 450ms 两次）
+      await sleep(1400);
+    }
+
     const info = await ev(`(() => {
-      const k = window.__kards, v = k.state.view;
       const c = document.getElementById('board');
+      const k = window.__kards;
+      if (!k) return { error: '页面没加载出 __kards（模块加载失败？）' };
+      const v = k.state && k.state.view;
       if (!v || !v.layout) return { error: '没开局' };
       const W = v.layout.width, H = v.layout.height;
       let worst = { over: 0, id: null, side: null };
@@ -154,10 +168,36 @@ async function probe(w, h, idx) {
         checked++;
         if (over > worst.over) worst = { over, id: s.id, side: s.side };
       }
+      const rect = c.getBoundingClientRect();
+      const hudRect = document.getElementById('hud').getBoundingClientRect();
+      const noticeRect = document.getElementById('licenseNotice').getBoundingClientRect();
+
+      /*
+       * 独立于精灵坐标的检查：卡面尺寸必须与几何留白自洽。
+       *
+       * 只看精灵坐标是不够的 —— 精灵的夹取也是用 v.cardW/v.cardH 算的，
+       * 卡片尺寸取错时会"自洽地"通过（真实踩过：geometry 用 0.65 反推留白，
+       * 而 theme 仍按 0.86 画牌，牌照样溢出）。
+       * 所以这里直接用 v.cardH 去比 几何留白*2 + 棋盘高 是否 >= 卡高 + 棋盘高，
+       * 也就是「最外两行的牌放得下吗」。
+       */
+      const needH = v.cardH;                        // 上下各伸半张 = 整张卡高
+      const haveH = 2 * (v.layout.padding.top + v.layout.padding.bottom); // 上下留白合计
+      const needW = v.cardW;
+      const haveW = 2 * (v.layout.padding.left + v.layout.padding.right);
+
       return {
         W, H, checked, worst,
         card: [Number(v.cardW.toFixed(1)), Number(v.cardH.toFixed(1))],
-        canvasCss: [c.style.width, c.style.height],
+        // 留白 vs 卡面：正数表示放得下
+        fitV: Number((haveH - needH).toFixed(1)),
+        fitH: Number((haveW - needW).toFixed(1)),
+        canvasRect: [Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height)],
+        outOfViewport: rect.left < -0.5 || rect.top < -0.5
+          || rect.right > innerWidth + 0.5 || rect.bottom > innerHeight + 0.5,
+        overlapsHud: rect.top < hudRect.bottom - 0.5 && rect.left < hudRect.right - 0.5,
+        overlapsNotice: rect.bottom > noticeRect.top + 0.5,
+        viewport: [innerWidth, innerHeight],
       };
     })()`);
 
@@ -183,12 +223,37 @@ async function probe(w, h, idx) {
 
 console.log('narrow');
 
+/**
+ * 取出探针结果并**立刻硬校验**。
+ *
+ * ⚠️ 不能让 { error } 流到各条断言里去：像 fitV 这种字段在出错时是 undefined，
+ * 而 `undefined < -0.5` 是 false —— 测试会"假绿"。
+ * （真的踩过：故意把 theme.js 改坏后，23 项照样全过。）
+ */
+function requireOk(info, label) {
+  if (!info || typeof info !== 'object') {
+    throw new Error(`${label}：探针没有返回结果（${JSON.stringify(info)}）`);
+  }
+  if (info.error) throw new Error(`${label}：${info.error}`);
+  if (info.checked !== 32) throw new Error(`${label}：只检查到 ${info.checked} 张牌`);
+  for (const key of ['worst', 'card', 'fitV', 'fitH', 'canvasRect', 'viewport']) {
+    if (info[key] === undefined) throw new Error(`${label}：探针缺少字段 ${key}`);
+  }
+  if (![info.fitV, info.fitH, info.worst.over].every(Number.isFinite)) {
+    throw new Error(`${label}：探针数值非法 ${JSON.stringify({ fitV: info.fitV, fitH: info.fitH, over: info.worst.over })}`);
+  }
+  return info;
+}
+
 for (let i = 0; i < SIZES.length; i++) {
   const [w, h] = SIZES[i];
-  const info = await probe(w, h, i);
+  const raw = await probe(w, h, i);
+  let info;
+  await check(`${w}×${h}：探针有效（探到 32 张牌、字段齐全）`, () => {
+    info = requireOk(raw, `${w}×${h}`);
+  });
+  if (!info) continue; // 探针本身无效时，后面的断言没有意义
   await check(`${w}×${h}：32 张牌全部在画布内`, () => {
-    if (info.error) throw new Error(info.error);
-    if (info.checked !== 32) throw new Error(`只检查到 ${info.checked} 张牌`);
     if (info.worst.over > 0.5) {
       throw new Error(
         `牌 #${info.worst.id}(${info.worst.side}) 越界 ${info.worst.over.toFixed(1)}px；` +
@@ -196,6 +261,51 @@ for (let i = 0; i < SIZES.length; i++) {
       );
     }
   });
+  await check(`${w}×${h}：画布不出视口、也不被 HUD / 版权声明压住`, () => {
+    if (info.outOfViewport) {
+      throw new Error(`画布 ${JSON.stringify(info.canvasRect)} 超出视口 ${JSON.stringify(info.viewport)}`);
+    }
+    if (info.overlapsHud) throw new Error('画布被顶部 HUD 压住');
+    if (info.overlapsNotice) throw new Error('画布被底部版权声明压住');
+  });
+  await check(`${w}×${h}：卡面尺寸与几何留白自洽（防两处常量不同步）`, () => {
+    // 留白合计必须 >= 卡面尺寸；不足说明 theme.js 与 geometry.js 的
+    // CARD_WIDTH_UNITS 不一致了（这正是"手机上还是溢出"的真凶）
+    if (info.fitV < -0.5) {
+      throw new Error(`纵向放不下：留白合计比卡高少 ${(-info.fitV).toFixed(1)}px（卡 ${info.card.join('×')}）`);
+    }
+    if (info.fitH < -0.5) {
+      throw new Error(`横向放不下：留白合计比卡宽少 ${(-info.fitH).toFixed(1)}px`);
+    }
+  });
+}
+
+/* 关键回归：手机旋转 / 动态视口变化后必须**重算**，不能留着旧尺寸 */
+{
+  const raw = await probe(390, 844, 90, { rotateTo: [844, 390] });
+  let info;
+  await check('手机旋转后探针有效', () => {
+    info = requireOk(raw, '旋转后');
+  });
+  if (info) {
+    await check('手机旋转（390×844 → 844×390）后自动重算，牌不越界', () => {
+      if (info.worst.over > 0.5) {
+        throw new Error(
+          `旋转后牌 #${info.worst.id} 越界 ${info.worst.over.toFixed(1)}px；` +
+          `画布 ${info.W.toFixed(0)}×${info.H.toFixed(0)}，视口 ${JSON.stringify(info.viewport)}`,
+        );
+      }
+    });
+    await check('旋转后画布仍在视口内、不被浮层压住', () => {
+      if (info.outOfViewport) throw new Error(`画布 ${JSON.stringify(info.canvasRect)} 超出视口 ${JSON.stringify(info.viewport)}`);
+      if (info.overlapsHud) throw new Error('旋转后画布被 HUD 压住');
+      if (info.overlapsNotice) throw new Error('旋转后画布被版权声明压住');
+    });
+    await check('旋转后卡面与留白仍自洽', () => {
+      if (info.fitV < -0.5) throw new Error(`纵向放不下，差 ${(-info.fitV).toFixed(1)}px`);
+      if (info.fitH < -0.5) throw new Error(`横向放不下，差 ${(-info.fitH).toFixed(1)}px`);
+    });
+  }
 }
 
 console.log(`\n${passed} 项通过${failures.length ? `，${failures.length} 项失败` : '，全部通过'}`);
