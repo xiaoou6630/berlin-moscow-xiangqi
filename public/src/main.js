@@ -890,7 +890,10 @@ function showCardPeek(id) {
 
   const wasHidden = cardPeekEl.hidden;
   peekId = id;
-  cardPeekImg.src = `./assets/${url}`;
+  // 只在图片真的换了的时候才改 src，避免每次悬停都重新解码图片
+  const next = `./assets/${url}`;
+  const cur = cardPeekImg.getAttribute('src');
+  if (cur !== next) cardPeekImg.src = next;
   cardPeekName.textContent = UNIT_NAMES[fid]?.[sprite.type] ?? sprite.type;
   cardPeekSub.textContent = `${PIECE_LABELS[sprite.type] ?? ''} · ${cfg.name}`;
   cardPeekEl.hidden = false;
@@ -963,12 +966,18 @@ function onCanvasHover(ev) {
   const px = ((ev.clientX - rect.left) / rect.width) * view.layout.width;
   const py = ((ev.clientY - rect.top) / rect.height) * view.layout.height;
   const id = view.pieceAt(px, py);
+
   if (id == null) {
     hideCardPeek();
     return;
   }
-  if (id !== peekId) showCardPeek(id);
-  else placeCardPeek();
+  // 预览位置只取决于**棋子**，不取决于鼠标。
+  // 所以在同一个棋子上移动时直接返回 —— 否则每次 mousemove 都要
+  // 多次 getBoundingClientRect（强制重排）+ 重设样式 + 动画重启，
+  // 观感上就像"鼠标一动整个棋面都在刷"。
+  if (id === peekId && !cardPeekEl.hidden) return;
+
+  showCardPeek(id);
 }
 
 function doHumanMove(from, to) {
@@ -1148,7 +1157,11 @@ function loop(now) {
     // 所以这里**不能**因为本地钟归零就自行判负 —— 联机时服务端没有时钟逻辑，
     // 本地判负会让双方局面永久分叉。等到真的做计时功能时，
     // 必须由服务端权威判定并广播 over。
-    view.render(now);
+    //
+    // 静止时不重绘：否则会一直以 60fps 全量重画 30 多张卡。
+    // 任何状态变化（走子 / 选中 / 换手 / 动画）都会让 needsRender 返回 true；
+    // 拿不准时机的地方（resize、面板开关）都直接调 view.render。
+    if (view.needsRender(now)) view.render(now);
   }
   requestAnimationFrame(loop);
 }

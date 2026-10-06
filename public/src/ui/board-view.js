@@ -20,6 +20,10 @@ import { img, reddened } from '../assets.js';
 const MOVE_MS = 260;
 /** 吃子后残牌留在地上的时长 */
 const FALLEN_MS = 1500;
+/** "上一手"起点框淡出 + 终点框停止呼吸的时长（之后定格，画面才能静止） */
+const PEEK_MARK_MS = 6000;
+/** 脉冲持续时长：之后定格，否则主循环永远无法进入静止状态 */
+const PULSE_MS = 4200;
 
 const INK = '#efe9db'; // 深色底上的浅色线条
 
@@ -363,6 +367,37 @@ export class BoardView {
     this.fallen = this.fallen.filter((f) => now - f.t0 < FALLEN_MS);
   }
 
+  /**
+   * 这一帧需不需要重绘。
+   *
+   * 棋盘上大部分时间是完全静止的，而主循环是每帧都跑；没有这个判断的话
+   * 会一直以 60fps 全量重绘 30 多张卡（风扇白转、手机白耗电）。
+   * 下面这些条件覆盖了所有"画面还在变"的情况，判错也只是漏一帧动画，
+   * 所以宁可保守一点（拿不准就返回 true）。
+   */
+  needsRender(now) {
+    if (!this.layout) return true;
+    // 残牌还在翻倒
+    if (this.fallen.length) return true;
+    for (const s of this.sprites.values()) {
+      if (!s.revealed) return true; // 出场动画没走完
+      if (s.killedAt) {
+        // 将死翻倒：演完之前一直要画
+        if (now - s.killedAt < (s.deathDur ?? 1500) + 60) return true;
+        continue;
+      }
+      if (Math.abs(s.tx - s.x) > 0.5 || Math.abs(s.ty - s.y) > 0.5) return true; // 还在滑动
+      if (now - s.born < 260) return true; // 出场缩放还没结束
+      if (s.red > 0 || s.rot !== 0 || (s.tilt ?? 1) !== 1 || s.alpha !== 1) return true;
+      // 上一手标记：起点框在淡出、终点框在呼吸，都要继续画；
+      // 两者都在 PEEK_MARK_MS 内结束，之后画面可以彻底静止
+      if (this.lastMove && now - (this.lastMove.t ?? 0) < PEEK_MARK_MS) return true;
+    }
+    // 可走点 / 将军红圈 / 上一手终点框都在呼吸闪烁，有高亮就一直画
+    if (this.targets.size || this.selected != null || this.checkSide != null) return true;
+    return false;
+  }
+
   /** 记录一张被吃掉的牌，之后由 playDeath 播放翻倒动画 */
   addFallen(side, type, px, py) {
     this.fallen.push({ side, type, x: px, y: py, t0: 0, started: false });
@@ -493,10 +528,8 @@ export class BoardView {
    * 画"上一手"标记。
    *
    * 视觉权重刻意压低：棋盘上随时有 32 张花卡，标记只是辅助，
-   * 抢眼反而看不清棋。所以
-   *   - 都画在选中框**之前**（会被选中框盖住，不干扰操作）
-   *   - 终点的实心框只保留形状，跟"流动虚线"的选中框区分
-   *   - 起点的虚框几秒后淡出，避免整盘长期挂着一堆框
+   * 抢眼反而看不清棋。而且**脉冲只持续几秒就定格** ——
+   * 一直闪烁会让画面永远无法静止（主循环每帧都得重绘）。
    */
   drawLastMove(now) {
     const lm = this.lastMove;
@@ -506,7 +539,7 @@ export class BoardView {
     const age = now - (lm.t ?? now);
 
     // 起点：虚线框，6 秒内淡出（"这个子是从这儿来的"是一眼的事）
-    const fromAlpha = Math.max(0, Math.min(1, 1 - age / 6000));
+    const fromAlpha = Math.max(0, Math.min(1, 1 - age / PEEK_MARK_MS));
     if (fromAlpha > 0.02) {
       const a = this.positionOf(lm.from);
       ctx.save();
@@ -517,9 +550,11 @@ export class BoardView {
       ctx.restore();
     }
 
-    // 终点：细实线框 + 四角短标记（"它落在这儿"，一直留着直到下一手）
+    // 终点：细实线框 + 四角短标记（"它落在这儿"，一直留着直到下一手）。
+    // 呼吸只在刚走完的几秒内，之后定格 —— 否则永远画不完。
+    const pulsing = age < PULSE_MS;
+    const pulse = pulsing ? 0.8 + 0.2 * Math.sin(now / 340) : 1;
     const b = this.positionOf(lm.to);
-    const pulse = 0.8 + 0.2 * Math.sin(now / 340);
     ctx.save();
     ctx.strokeStyle = `rgba(255, 186, 74, ${0.7 * pulse})`;
     ctx.lineWidth = Math.max(1.5, layout.filePitch * 0.03);
