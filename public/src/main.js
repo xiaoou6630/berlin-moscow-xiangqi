@@ -17,7 +17,7 @@ import {
 } from '#shared/engine/rules.js';
 import { chooseMove, LEVELS } from '#shared/engine/ai.js';
 import { CARD_RATIO, CARD_WIDTH_UNITS, DIFFICULTY_UI, FACTIONS, GERMANY, SOVIET, sideOfFaction } from './theme.js';
-import { connectAsGuest, connectAsHost, lanInfo, probeServer } from './lan.js';
+import { connectAsGuest, connectAsHost, lanInfo } from './lan.js';
 // ⚠️ 这两个必须是**静态** import：页面用了 <base href="./public/">，
 //    而 <base> 不影响 ES module 的相对解析（只影响 HTML 里的 URL）。
 //    写成 import() 的话在 GitHub Pages 子路径下会解析错。
@@ -73,8 +73,6 @@ const state = {
   levelId: 2,
   /** 'local' 同一台设备 | 'host' 我建房 | 'guest' 我加入 */
   mode: 'local',
-  /** 本机是否跑着 Node 服务器（静态托管上没有，联机要藏起来） */
-  serverOk: true,
   /** 联机链路 */
   link: null,
   linkSide: null,
@@ -125,29 +123,7 @@ function buildMenu() {
     btn.addEventListener('click', () => selectMode(btn.dataset.mode));
   }
 
-  applyServerAvailability();
   paintMenuSelection();
-}
-
-/**
- * 静态托管（GitHub Pages 等）上没有 Node 服务器，联机不可用。
- * 把建房 / 加入两个按钮禁用并说明原因，免得出现
- * "http://xxx.github.io:5173/ 等待对手" 这种不可能成功的状态。
- */
-function applyServerAvailability() {
-  if (state.serverOk) return;
-  for (const btn of modeRowEl.querySelectorAll('.level')) {
-    if (btn.dataset.mode === 'local') continue;
-    btn.disabled = true;
-    btn.title = '联机对战需要在本机运行 Node 服务器（npm start）';
-    btn.style.opacity = '0.4';
-    btn.style.cursor = 'not-allowed';
-  }
-  const note = document.getElementById('lanNote');
-  if (note) {
-    note.hidden = false;
-    note.textContent = '当前是纯静态托管，联机对战不可用（需要本机运行 npm start）。单人、两人同机正常。';
-  }
 }
 
 function selectFaction(id) {
@@ -161,8 +137,6 @@ function selectLevel(id) {
 }
 
 function selectMode(mode) {
-  // 静态托管上没有服务器，联机模式直接不接受
-  if (!state.serverOk && mode !== 'local') return;
   state.mode = mode;
   hostPanel.hidden = mode !== 'host';
   guestPanel.hidden = mode !== 'guest';
@@ -536,7 +510,7 @@ async function beginMatch({ humanSide, mode }) {
 
   state.humanSide = humanSide;
   state.aiSide = aiSide;
-  state.game = { state: initialState(), history: [] };
+  state.game = { state: initialState(), history: [], lastMove: null };
   state.over = false;
   state.aiThinking = false;
 
@@ -604,6 +578,11 @@ function refreshView({ animate = true } = {}) {
   const { game, view } = state;
   if (!game || !view) return;
   view.sync(game.state.board, { animate });
+  // 标记上一手：让玩家一眼看出对方刚把哪个子挪到哪去了。
+  // 用 game.lastMove（不是 moves 的末条）——悔棋后它会自动回退到上一步，
+  // 不会把已经撤销的那步留在盘上误导人。
+  const lm = game.lastMove;
+  view.markLastMove(lm ? lm.from : null, lm ? lm.to : null);
   view.checkSide = isInCheck(game.state.board, game.state.turn) ? game.state.turn : null;
   const gid = {};
   gid[RED] = findGeneral(game.state.board, RED);
@@ -747,7 +726,10 @@ function applyAndAdvance(from, to, mover, captured, { fromRemote = false } = {})
   const board = state.game.state.board;
   board[to] = mover;
   board[from] = null;
-  state.game.history.push({ from, to, mover, captured });
+  const record = { from, to, mover, captured };
+  state.game.history.push(record);
+  // 给"上一手高亮"用；悔棋时下面会跟着回退
+  state.game.lastMove = record;
   state.game.state.turn = state.game.state.turn === RED ? BLACK : RED;
 
   state.view.selected = null;
@@ -799,6 +781,8 @@ undoBtn?.addEventListener('click', () => {
     g.state.board[rec.to] = rec.captured ?? null;
     g.state.turn = rec.mover.side;
   }
+  // 上一手标记跟着回退到剩下的最后一步（全悔完就清空）
+  g.lastMove = g.history[g.history.length - 1] ?? null;
   state.view.selected = null;
   state.view.targets = new Set();
   refreshView({ animate: false });
@@ -908,13 +892,6 @@ function loop(now) {
 function boot() {
   bindControls();
   buildMenu();
-
-  // 探测本机有没有 Node 服务器：决定联机选项给不给用
-  probeServer().then((ok) => {
-    state.serverOk = ok;
-    applyServerAvailability();
-    paintMenuSelection();
-  });
 
   // 测试用：?faction=soviet&level=2&auto=1 直接开局
   const params = new URLSearchParams(location.search);

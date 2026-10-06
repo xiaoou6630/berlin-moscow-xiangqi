@@ -50,6 +50,12 @@ export class BoardView {
     this.selected = null;
     this.targets = new Set();
     this.checkSide = null;
+    /**
+     * 上一手走法（显示坐标下的格子 id）。
+     * 没有它的话，轮到你时得自己在盘上找对方刚把哪个子挪哪去了。
+     * { from: number, to: number } | null
+     */
+    this.lastMove = null;
 
     this.resize();
   }
@@ -100,8 +106,12 @@ export class BoardView {
 
   /**
    * 真实盘面索引 → 画布像素。实时计算，因此始终与翻转状态一致。
+   * 如果该位置有精灵且它正在滑动，返回精灵的**当前**位置，
+   * 这样高亮框会跟着棋子走，而不是提前跳到终点。
    */
   positionOf(id) {
+    const s = this.sprites?.get(id);
+    if (s) return { px: s.x, py: s.y };
     const shown = this.toDisplay(id);
     return this.layout.pointAt(shown % FILES, Math.floor(shown / FILES));
   }
@@ -152,16 +162,18 @@ export class BoardView {
       // 显示坐标：执黑时把整盘转 180°
       const shown = flip ? rotate180(id) : id;
       const { px, py } = this.layout.pointAt(shown % FILES, Math.floor(shown / FILES));
+      // 夹进画布：窄窗口下边缘的牌不能被切掉
+      const pos = this.clampToCanvas(px, py, 1);
       const existing = this.sprites.get(id);
       if (existing && animate) {
-        existing.tx = px;
-        existing.ty = py;
+        existing.tx = pos.x;
+        existing.ty = pos.y;
         existing.type = p.type;
         existing.side = p.side;
       } else {
         this.sprites.set(id, {
           id, type: p.type, side: p.side,
-          x: px, y: py, tx: px, ty: py,
+          x: pos.x, y: pos.y, tx: pos.x, ty: pos.y,
           born: performance.now(), rot: 0, alpha: 1, scale: 1, red: 0, revealed: false,
         });
       }
@@ -170,6 +182,54 @@ export class BoardView {
     for (const id of [...this.sprites.keys()]) {
       if (!seen.has(id)) this.sprites.delete(id);
     }
+    // 画布尺寸可能刚变过（窄窗口），把落点重新夹一遍
+    for (const s of this.sprites.values()) {
+      const c = this.clampToCanvas(s.tx, s.ty, s.scale ?? 1);
+      s.tx = c.x;
+      s.ty = c.y;
+      if (!animate) {
+        s.x = c.x;
+        s.y = c.y;
+      }
+    }
+  }
+
+  /**
+   * 把「卡面中心」夹进画布，保证整张牌不会被裁。
+   *
+   * 棋盘四周的留白是按卡面尺寸定的，理论上够用；但窗口很窄时
+   * 留白与卡面的比例会变化，加上卡牌还有投影，边缘那几行仍可能探出去。
+   * 这里兜底：宁可让边上的牌稍稍离开交叉点，也不让它被画布切掉。
+   *
+   * 夹的范围按牌**当前朝向**算：竖着的牌只需要半个卡宽/卡高，
+   * 只有倒下动画（转起来了）才需要外接圆那么大的余量 —— 否则
+   * 正常摆好的边线牌会被无谓地往里推，跟交叉点对不上。
+   *
+   * @param {number} x 期望的中心 X
+   * @param {number} y 期望的中心 Y
+   * @param {number} [rot] 牌面当前旋转角（弧度）
+   */
+  clampToCanvas(x, y, scale = 1, rot = 0) {
+    const { layout } = this;
+    // 构造期间 sync() 可能先于 resize() 被调用，这时没有 layout，原样返回
+    if (!layout || !this.cardW) return { x, y };
+
+    const uprightX = (this.cardW / 2) * scale;
+    const uprightY = (this.cardH / 2) * scale;
+    const spinX = (Math.hypot(this.cardW, this.cardH) / 2) * scale;
+
+    // 有旋转时按外接圆，没旋转时按半个卡面
+    const turning = Math.abs(rot) > 1e-3;
+    const halfX = turning ? spinX : uprightX;
+    const halfY = turning ? spinX : uprightY;
+    const margin = Math.max(1.5, this.cardW * 0.08); // 给投影留一点
+
+    const loX = halfX + margin;
+    const loY = halfY + margin;
+    return {
+      x: Math.min(Math.max(x, loX), Math.max(loX, layout.width - loX)),
+      y: Math.min(Math.max(y, loY), Math.max(loY, layout.height - loY)),
+    };
   }
 
   /**
@@ -260,7 +320,7 @@ export class BoardView {
     // 不用 ctx.filter（实测它会把这次 drawImage 合成成黑色）。
     ctx.save();
     ctx.clearRect(0, 0, layout.width, layout.height);
-    const bg = img('assets/background.jpg');
+    const bg = img('assets/background.webp');
     const scale = Math.max(layout.width / bg.width, layout.height / bg.height);
     const bw = bg.width * scale;
     const bh = bg.height * scale;
@@ -282,7 +342,6 @@ export class BoardView {
     this.drawHighlights(now);
     this.drawFallen(now);
     this.drawSprites(now);
-    this.drawRiverTextOverlay();
   }
 
   drawRiverText() {
@@ -292,18 +351,24 @@ export class BoardView {
     const riverH = riverBottom - riverTop;
     const cy = (riverTop + riverBottom) / 2;
 
-    // 字号必须保证"字高 + 上下留白"塞得进河界带，否则横屏时会溢出去压住棋子
-    const fontSize = Math.min(layout.rankPitch * 0.62, riverH * 0.68);
+    // 字号必须保证"字高 + 上下留白"塞得进河界带，否则横屏时会溢出去压住棋子。
+    // 河道文字是**背景质感**，不是主角：压小、压淡，别跟棋子抢视线。
+    const fontSize = Math.min(layout.rankPitch * 0.5, riverH * 0.56);
 
-    // 河界带内的暗色底，让文字更清楚
+    // 河界带内的暗色底，让文字更清楚（同样压淡）
     ctx.save();
-    ctx.fillStyle = 'rgba(8, 12, 16, 0.34)';
+    ctx.fillStyle = 'rgba(8, 12, 16, 0.26)';
     ctx.fillRect(layout.boardLeft, riverTop, layout.boardW, riverH);
     ctx.restore();
 
     this._riverText = { fontSize, cy, riverTop, riverBottom };
   }
 
+  /**
+   * 河界文字（柏林 / 莫斯科）。
+   * 在棋子**之前**绘制：它是河道上的印字，棋子压在上面才对，
+   * 反过来会让"莫"字盖住正好走到河界的牌。
+   */
   drawRiverTextOverlay() {
     const { ctx, layout } = this;
     if (!this._riverText) return;
@@ -317,6 +382,7 @@ export class BoardView {
     ctx.rect(layout.boardLeft, riverTop, layout.boardW, riverBottom - riverTop);
     ctx.clip();
 
+    ctx.globalAlpha = 0.45; // 背景质感，不抢戏
     ctx.fillStyle = '#f4eee0';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -336,8 +402,82 @@ export class BoardView {
     ctx.restore();
   }
 
+  /**
+   * 标记"上一手"：起点虚线框、终点实线框。
+   * 传入的是**模型坐标**的格子 id，这里转成显示坐标（执黑时整盘翻转）。
+   * @param {number|null} from 起点（模型 id）
+   * @param {number|null} to 终点（模型 id）
+   * @param {number} [now] 时间戳，用于起点框淡出
+   */
+  markLastMove(from, to, now = performance.now()) {
+    if (from == null || to == null) {
+      this.lastMove = null;
+      return;
+    }
+    const flip = this.isFlipped();
+    this.lastMove = {
+      from: flip ? rotate180(from) : from,
+      to: flip ? rotate180(to) : to,
+      t: now,
+    };
+  }
+
+  /**
+   * 画"上一手"标记。
+   *
+   * 视觉权重刻意压低：棋盘上随时有 32 张花卡，标记只是辅助，
+   * 抢眼反而看不清棋。所以
+   *   - 都画在选中框**之前**（会被选中框盖住，不干扰操作）
+   *   - 终点的实心框只保留形状，跟"流动虚线"的选中框区分
+   *   - 起点的虚框几秒后淡出，避免整盘长期挂着一堆框
+   */
+  drawLastMove(now) {
+    const lm = this.lastMove;
+    if (!lm) return;
+    const { ctx, layout } = this;
+    const r = layout.filePitch * 0.5;
+    const age = now - (lm.t ?? now);
+
+    // 起点：虚线框，6 秒内淡出（"这个子是从这儿来的"是一眼的事）
+    const fromAlpha = Math.max(0, Math.min(1, 1 - age / 6000));
+    if (fromAlpha > 0.02) {
+      const a = this.positionOf(lm.from);
+      ctx.save();
+      ctx.strokeStyle = `rgba(140, 205, 255, ${0.8 * fromAlpha})`;
+      ctx.lineWidth = Math.max(1.5, layout.filePitch * 0.032);
+      ctx.setLineDash([layout.filePitch * 0.14, layout.filePitch * 0.12]);
+      ctx.strokeRect(a.px - r, a.py - r, r * 2, r * 2);
+      ctx.restore();
+    }
+
+    // 终点：细实线框 + 四角短标记（"它落在这儿"，一直留着直到下一手）
+    const b = this.positionOf(lm.to);
+    const pulse = 0.8 + 0.2 * Math.sin(now / 340);
+    ctx.save();
+    ctx.strokeStyle = `rgba(255, 186, 74, ${0.7 * pulse})`;
+    ctx.lineWidth = Math.max(1.5, layout.filePitch * 0.03);
+    ctx.strokeRect(b.px - r, b.py - r, r * 2, r * 2);
+
+    const arm = r * 0.42;
+    ctx.lineWidth = Math.max(2.5, layout.filePitch * 0.055);
+    ctx.strokeStyle = `rgba(255, 214, 130, ${0.95 * pulse})`;
+    ctx.beginPath();
+    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const cx = b.px + sx * r;
+      const cy = b.py + sy * r;
+      ctx.moveTo(cx - sx * arm, cy);
+      ctx.lineTo(cx, cy);
+      ctx.lineTo(cx, cy - sy * arm);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
   drawHighlights(now) {
     const { ctx, layout } = this;
+
+    // 上一手（画在最底层，不抢选中态）
+    this.drawLastMove(now);
 
     // 可走点
     if (this.targets.size) {

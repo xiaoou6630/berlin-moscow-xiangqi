@@ -70,7 +70,7 @@ export function reddened(url) {
 
 /** 收集一个阵营所需的所有资源路径 */
 export function urlsForFactions(factions) {
-  const list = ['assets/background.jpg'];
+  const list = ['assets/background.webp'];
   for (const f of factions) {
     list.push(f.portrait);
     for (const p of Object.values(f.cards)) list.push(p);

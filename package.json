@@ -24,6 +24,7 @@
     "test:server": "node tools/test-server.js",
     "test:lan": "node tools/test-lan.js",
     "test:pages": "node tools/test-pages.js",
+    "test:narrow": "node tools/test-narrow.js",
     "test:browser": "node tools/browser-check.js",
     "test:browser:lan": "node tools/browser-lan-check.js"
   },

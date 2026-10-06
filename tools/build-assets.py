@@ -1,8 +1,14 @@
 """把美术素材整理成网页用的资源：
-  - 卡牌整图  → public/assets/cards/<faction>/<role>.png   (保持 500x702 原始比例)
+  - 卡牌整图  → public/assets/cards/<faction>/<role>.webp  (按显示需要缩放)
   - 卡面头像  → public/assets/portraits/<faction>.png      (裁成正方形，给选边界面用)
-  - 背景底图  → public/assets/background.jpg
+  - 背景底图  → public/assets/background.webp
 运行：npm run assets
+
+为什么要缩放 + 转 WebP：
+  卡面在棋盘上的实际显示尺寸约 68x96 CSS px（1400px 宽窗口），
+  即使 3x DPR 也只需要 ~205px 宽，而源图是 500x702 —— 超配了 7 倍，
+  14 张下来足有 6.2MB PNG，网速一般时要等十几秒。
+  按 CARD_WEBP_WIDTH 缩放并转 WebP 后体积降到零头，肉眼无差别。
 """
 from pathlib import Path
 from PIL import Image
@@ -44,6 +50,19 @@ PORTRAIT = {
 PORTRAIT_SIZE = 256
 BG_MAX = 1600  # 背景压到这个宽度足够，减体积
 
+# 卡面输出宽度。
+#
+# 卡面显示尺寸只取决于**视口高度**（棋盘是竖的，宽度早就够），实测：
+#   窗口          棋盘高   卡宽CSS   3x DPR 需要
+#   1400x900        621      62        186
+#   2560x1440      1107     110        331   (3440x1440 / 5120x1440 同此)
+#   3840x2160      1755     175        525   (5120x2160 同此)
+# 所以 4K 及以上全屏时必须 > 525px 才不虚（带鱼屏反而不用担心）。
+# 取 576：覆盖到 4K@3x，也覆盖 5K/8K@2x。
+CARD_WEBP_WIDTH = 576
+CARD_WEBP_QUALITY = 88
+BG_WEBP_QUALITY = 88
+
 
 def ensure(p: Path):
     p.mkdir(parents=True, exist_ok=True)
@@ -53,14 +72,28 @@ def ensure(p: Path):
 def export_cards(mapping, folder, out_dir, extra_dirs=()):
     """extra_dirs: 额外搜索目录（素材偶尔会放错阵营的文件夹）。"""
     search = [folder, *extra_dirs]
+    total_before = 0
+    total_after = 0
     for role, name in mapping.items():
         src = next((d / name for d in search if (d / name).exists()), None)
         if src is None:
             raise SystemExit(f"缺少素材: {name}（找过 {[str(d) for d in search]}）")
         im = Image.open(src).convert("RGBA")
-        dst = out_dir / f"{role}.png"
-        im.save(dst, optimize=True)
-        print(f"  card  {src.parent.name}/{name} -> {dst.relative_to(ROOT)}  {im.size}")
+        # 只缩不放：源图本来就更窄时保持原尺寸
+        if im.width > CARD_WEBP_WIDTH:
+            im = im.resize(
+                (CARD_WEBP_WIDTH, round(im.height * CARD_WEBP_WIDTH / im.width)),
+                Image.LANCZOS,
+            )
+        # 用白色做底再转 RGB：卡面本身不透明，避免 WebP 里留无用的 alpha 通道
+        flat = Image.new("RGB", im.size, (255, 255, 255))
+        flat.paste(im, mask=im.split()[3])
+        dst = out_dir / f"{role}.webp"
+        flat.save(dst, "WEBP", quality=CARD_WEBP_QUALITY, method=6)
+        total_before += src.stat().st_size
+        total_after += dst.stat().st_size
+        print(f"  card  {src.parent.name}/{name} -> {dst.relative_to(ROOT)}  {flat.size}")
+    print(f"        {folder.name}: {total_before/1048576:.1f}MB -> {total_after/1048576:.1f}MB")
 
 
 def square_crop(im: Image.Image) -> Image.Image:
@@ -103,17 +136,19 @@ def export_portraits():
 
 def export_background():
     """背景底图：**原样使用**用户给的 R-C.jpg。
-    只做等比缩放以减小体积，不调色、不归一化、不改亮度。"""
+    只做等比缩放 + 转 WebP 以减小体积，不调色、不归一化、不改亮度。"""
     src = SRC_GER / "R-C.jpg"
     if not src.exists():
         raise SystemExit(f"缺少背景: {src}")
     im = Image.open(src).convert("RGB")
     if im.width > BG_MAX:
         im = im.resize((BG_MAX, round(im.height * BG_MAX / im.width)), Image.LANCZOS)
-    dst = ensure(OUT) / "background.jpg"
-    im.save(dst, quality=90, optimize=True, progressive=True)
+    dst = ensure(OUT) / "background.webp"
+    im.save(dst, "WEBP", quality=BG_WEBP_QUALITY, method=6)
     arr = np.asarray(im).astype(float)
-    print(f"  background -> {dst.relative_to(ROOT)}  {im.size}  原图直出（亮度均值 {arr.mean():.1f}）")
+    print(f"  background -> {dst.relative_to(ROOT)}  {im.size}  "
+          f"{src.stat().st_size/1048576:.2f}MB -> {dst.stat().st_size/1048576:.2f}MB  "
+          f"原图直出（亮度均值 {arr.mean():.1f}）")
 
 
 def main():

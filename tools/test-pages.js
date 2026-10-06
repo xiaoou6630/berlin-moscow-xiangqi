@@ -24,7 +24,7 @@ const DEBUG_PORT = 9488 + (process.pid % 8);
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
   '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
 };
 
@@ -221,21 +221,9 @@ try {
     if (lum < 25) throw new Error(`该处过暗 (${px})，背景可能没画上`);
   });
 
-  await check('静态托管下联机选项被禁用并说明原因', async () => {
-    const info = await ev(`(() => {
-      const btns = [...document.querySelectorAll('#modeRow .level')].map((b) => ({
-        mode: b.dataset.mode, disabled: b.disabled,
-      }));
-      const note = document.getElementById('lanNote');
-      return { btns, noteShown: !note.hidden, note: note.textContent.slice(0, 30),
-               serverOk: window.__kards.state.serverOk, mode: window.__kards.state.mode };
-    })()`);
-    const lanBtns = info.btns.filter((b) => b.mode !== 'local');
-    if (lanBtns.some((b) => !b.disabled)) {
-      throw new Error(`联机按钮没被禁用: ${JSON.stringify(info.btns)}`);
-    }
-    if (!info.noteShown) throw new Error('没有显示"联机不可用"的说明');
-    if (info.mode !== 'local') throw new Error(`模式应停在 local，实际 ${info.mode}`);
+  await check('子路径下三种模式按钮都在', async () => {
+    const n = await ev(`document.querySelectorAll('#modeRow .level').length`);
+    if (n !== 3) throw new Error(`模式按钮数量 = ${n}，应为 3`);
   });
 
   await check('没有资源 404（/api/net 探测失败属预期）', async () => {

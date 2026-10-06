@@ -402,6 +402,43 @@ async function main() {
     return okOne(hintText.before) && okOne(hintText.after);
   })(), JSON.stringify(hintText));
 
+  /* 上一手高亮：让玩家看得出对方刚走了哪一步 */
+  const lastMoveInfo = await ev(`(async () => {
+    const k = window.__kards, v = k.state.view;
+    const mod = await import('/src/engine/rules.js');
+    const before = v.lastMove;
+    const m = mod.legalMoves(k.state.game.state, k.state.game.state.turn)[0];
+    const c = document.getElementById('board'), r = c.getBoundingClientRect();
+    const fire = (idx) => { const p = v.positionOf(idx);
+      c.dispatchEvent(new PointerEvent('pointerdown', {
+        clientX: r.left + (p.px / v.layout.width) * r.width,
+        clientY: r.top + (p.py / v.layout.height) * r.height, bubbles: true })); };
+    fire(m.from); await new Promise((z) => setTimeout(z, 140));
+    fire(m.to); await new Promise((z) => setTimeout(z, 400));
+    const after = v.lastMove;
+    // 显示坐标：执黑时会被翻转，所以和模型坐标对照时要换算
+    const flip = v.isFlipped();
+    const expect = (id) => (flip ? 89 - id : id);
+    return { before, move: m, after,
+             wantFrom: expect(m.from), wantTo: expect(m.to),
+             hasTime: typeof after?.t === 'number' };
+  })()`);
+  check('上一手标记指向刚走的那一步（按显示坐标换算）',
+    lastMoveInfo.after?.from === lastMoveInfo.wantFrom && lastMoveInfo.after?.to === lastMoveInfo.wantTo,
+    JSON.stringify(lastMoveInfo));
+  check('上一手标记带时间戳（起点框据此淡出）', lastMoveInfo.hasTime === true, JSON.stringify(lastMoveInfo));
+
+  /* 悔棋后标记要跟着回退，不能把撤销的那步留在盘上 */
+  const afterUndo = await ev(`(async () => {
+    const k = window.__kards;
+    document.getElementById('undoBtn').click();
+    await new Promise((z) => setTimeout(z, 300));
+    return { lastMove: k.state.view.lastMove, hist: k.state.game.history.length };
+  })()`);
+  check('悔棋后上一手标记跟着回退',
+    afterUndo.hist === 0 ? afterUndo.lastMove === null : afterUndo.lastMove != null,
+    JSON.stringify(afterUndo));
+
   /* 同机模式：左上角一个头像、左下角一个头像，谁走谁亮 */
   const avatars = await ev(`(() => {
     const t = document.getElementById('hudTop'), s = document.getElementById('hudSelf');

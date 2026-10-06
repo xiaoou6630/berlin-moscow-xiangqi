@@ -48,7 +48,7 @@ for faction, roles in EXPECT.items():
     print(f"=== {faction} ===")
     for role, srcname in roles.items():
         src = glob.glob(str(ROOT / "art" / "*" / srcname))
-        dst = OUT / faction / f"{role}.png"
+        dst = OUT / faction / f"{role}.webp"
         if not src:
             print(f"  [X] {LABEL[role]:6} 找不到源文件 {srcname}")
             bad += 1

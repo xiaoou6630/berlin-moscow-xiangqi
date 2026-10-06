@@ -21,13 +21,13 @@ export const FACTIONS = {
     side: 'red',
     accent: '#d8342a',
     cards: {
-      general: 'cards/soviet/general.png',
-      advisor: 'cards/soviet/advisor.png', // 近卫步兵第 272 团
-      elephant: 'cards/soviet/elephant.png', // 战术撤退
-      horse: 'cards/soviet/horse.png',
-      chariot: 'cards/soviet/chariot.png',
-      cannon: 'cards/soviet/cannon.png',
-      pawn: 'cards/soviet/pawn.png',
+      general: 'cards/soviet/general.webp',
+      advisor: 'cards/soviet/advisor.webp', // 近卫步兵第 272 团
+      elephant: 'cards/soviet/elephant.webp', // 战术撤退
+      horse: 'cards/soviet/horse.webp',
+      chariot: 'cards/soviet/chariot.webp',
+      cannon: 'cards/soviet/cannon.webp',
+      pawn: 'cards/soviet/pawn.webp',
     },
   },
   [GERMANY]: {
@@ -38,13 +38,13 @@ export const FACTIONS = {
     side: 'black',
     accent: '#8a7b52',
     cards: {
-      general: 'cards/germany/general.png',
-      advisor: 'cards/germany/advisor.png',
-      elephant: 'cards/germany/elephant.png',
-      horse: 'cards/germany/horse.png',
-      chariot: 'cards/germany/chariot.png',
-      cannon: 'cards/germany/cannon.png',
-      pawn: 'cards/germany/pawn.png',
+      general: 'cards/germany/general.webp',
+      advisor: 'cards/germany/advisor.webp',
+      elephant: 'cards/germany/elephant.webp',
+      horse: 'cards/germany/horse.webp',
+      chariot: 'cards/germany/chariot.webp',
+      cannon: 'cards/germany/cannon.webp',
+      pawn: 'cards/germany/pawn.webp',
     },
   },
 };

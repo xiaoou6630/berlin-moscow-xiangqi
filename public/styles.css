@@ -200,25 +200,6 @@ body {
 .lanhint { color: var(--ink-dim); font-size: 12px; margin: 6px 0 0; letter-spacing: 0.06em; }
 .lanrow .lanhint { margin: 0; }
 
-/* 静态托管上没有服务器时的说明 */
-.lannote {
-  width: min(620px, 100%);
-  margin: 0 auto 18px;
-  padding: 9px 14px;
-  font-size: 12px;
-  line-height: 1.6;
-  letter-spacing: 0.06em;
-  color: #e8c979;
-  background: rgba(207, 168, 68, 0.1);
-  border: 1px solid rgba(207, 168, 68, 0.35);
-  border-radius: 6px;
-}
-
-.lannote[hidden] { display: none; }
-
-/* 联机按钮禁用态 */
-.modes .level:disabled { opacity: 0.4; cursor: not-allowed; }
-.modes .level:disabled:hover { border-color: rgba(255, 255, 255, 0.12); }
 
 .switch {
   display: inline-flex;
@@ -361,6 +342,18 @@ body {
 
 /* 菜单遮罩盖在上面时声明也要看得见（社区许可要求显著展示） */
 .overlay { padding-bottom: 46px; }
+
+/* 窄屏：声明会折成好几行，压小字号并贴边，少占棋盘的地方 */
+@media (max-width: 720px) {
+  .notice {
+    bottom: 2px;
+    max-width: 98vw;
+    padding: 3px 8px;
+    font-size: 9px;
+    line-height: 1.35;
+    border-radius: 4px;
+  }
+}
 
 .hint { margin: 14px 0 0; color: var(--ink-dim); font-size: 12px; letter-spacing: 0.1em; min-height: 18px; }
 

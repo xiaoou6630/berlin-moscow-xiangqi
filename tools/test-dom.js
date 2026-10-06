@@ -124,7 +124,7 @@ check('每种棋子都有对应卡面（不能缺图）', () => {
   for (const f of [FACTIONS[SOVIET], FACTIONS[GERMANY]]) {
     for (const t of types) {
       assert.ok(f.cards[t], `${f.name} 缺少 ${t} 的卡面`);
-      assert.ok(f.cards[t].endsWith('.png'));
+      assert.ok(f.cards[t].endsWith('.webp'));
     }
   }
 });
@@ -138,7 +138,7 @@ check('资源路径归一化：带不带 assets/ 前缀都指向同一份', () =
 check('预加载清单覆盖双方全部卡面与头像', () => {
   const urls = urlsForFactions([FACTIONS[SOVIET], FACTIONS[GERMANY]]);
   const keys = urls.map(normalizeAssetPath);
-  assert.ok(keys.includes('assets/background.jpg'), '缺背景');
+  assert.ok(keys.includes('assets/background.webp'), '缺背景');
   for (const f of [FACTIONS[SOVIET], FACTIONS[GERMANY]]) {
     assert.ok(keys.includes(normalizeAssetPath(f.portrait)), `缺头像 ${f.portrait}`);
     for (const p of Object.values(f.cards)) {
@@ -245,12 +245,14 @@ check('sync 把 32 个棋子变成精灵', () => {
   const { board } = initialState();
   view.sync(board, { animate: false });
   assert.equal(view.sprites.size, 32);
-  // 每个精灵都在某个合法交叉点上
+  // 每个精灵都落在它自己那个交叉点上（positionOf 是渲染真正使用的位置，
+  // 含"夹进画布"的兜底，所以这里对照它而不是原始交叉点）
   for (const s of view.sprites.values()) {
-    const f = s.id % FILES;
-    const r = Math.floor(s.id / FILES);
-    const p = view.pointAt(f, r);
-    assert.ok(Math.abs(s.x - p.px) < 1e-6 && Math.abs(s.y - p.py) < 1e-6);
+    const p = view.positionOf(s.id);
+    assert.ok(
+      Math.abs(s.x - p.px) < 1e-6 && Math.abs(s.y - p.py) < 1e-6,
+      `棋子 ${s.id} 的精灵位置 (${s.x.toFixed(1)},${s.y.toFixed(1)}) 与交叉点 (${p.px.toFixed(1)},${p.py.toFixed(1)}) 不一致`,
+    );
   }
 });
 

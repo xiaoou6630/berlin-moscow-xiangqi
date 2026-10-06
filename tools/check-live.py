@@ -12,7 +12,7 @@ bad = 0
 for faction in ["soviet", "germany"]:
     print(f"=== {faction} ===")
     for role in ROLES:
-        local = ROOT / "public" / "assets" / "cards" / faction / f"{role}.png"
+        local = ROOT / "public" / "assets" / "cards" / faction / f"{role}.webp"
         try:
             remote = urllib.request.urlopen(f"{BASE}/{faction}/{role}.png", timeout=25).read()
         except Exception as e:  # noqa: BLE001

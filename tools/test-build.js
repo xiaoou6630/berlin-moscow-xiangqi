@@ -72,9 +72,9 @@ check('产物布局与仓库根一致（index.html + public/ + src/ + .nojekyll�
 });
 
 check('美术素材进了产物（第三方编译站没素材就会失败）', () => {
-  const cards = files.filter((f) => /^public\/assets\/cards\/\w+\/\w+\.png$/.test(f));
+  const cards = files.filter((f) => /^public\/assets\/cards\/\w+\/\w+\.(png|webp)$/.test(f));
   assert.equal(cards.length, 14, `卡面数量 ${cards.length}，应为 14`);
-  assert.ok(files.includes('public/assets/background.jpg'), '缺背景底图');
+  assert.ok(files.includes('public/assets/background.webp'), '缺背景底图');
   const portraits = files.filter((f) => /^public\/assets\/portraits\/\w+\.png$/.test(f));
   assert.equal(portraits.length, 2, `头像数量 ${portraits.length}，应为 2`);
 });
@@ -92,7 +92,7 @@ check('入口页引用的资源在产物里都存在', () => {
 
 check('卡面映射声明的图都在产物里', () => {
   const theme = readFileSync(join(ROOT, 'public', 'src', 'theme.js'), 'utf8');
-  const declared = [...theme.matchAll(/cards\/(\w+)\/(\w+)\.png/g)].map((m) => `public/assets/${m[0]}`);
+  const declared = [...theme.matchAll(/cards\/(\w+)\/(\w+\.(?:png|webp))/g)].map((m) => `public/assets/cards/${m[1]}/${m[2]}`);
   assert.ok(declared.length >= 14, `theme.js 里只解析到 ${declared.length} 个卡面`);
   const missing = [...new Set(declared)].filter((p) => !files.includes(p));
   assert.equal(missing.length, 0, `theme.js 声明了但产物里没有: ${missing.join(', ')}`);
