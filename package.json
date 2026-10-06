@@ -20,6 +20,7 @@
     "test:build": "node tools/test-build.js",
     "test:geometry": "node tools/test-geometry.js",
     "test:check": "node tools/test-check.js",
+    "test:immobile": "node tools/test-immobile.js",
     "test:dom": "node tools/test-dom.js",
     "test:engine": "node tools/test-engine.js",
     "test:server": "node tools/test-server.js",
