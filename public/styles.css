@@ -395,9 +395,13 @@ body {
 /* ---------------- 版权声明（1939 Games 社区许可第 6 条要求显著展示）---------------- */
 
 /*
- * 声明**钉在屏幕最底层**，横向占满，只放一行链接 + 一句中文。
- * 完整声明（中英对照）在 public/licenses.html。
+ * 声明**钉在屏幕最底层**，竖向占满，放两行：
+ *   第一行 作者 + B 站链接
+ *   第二行 版权声明 + KARDS 社区许可链接
  * 左下角的"自己"头像抬到它上面（见 .hud-bottom 的 --notice-h），两者不重叠。
+ *
+ * ⚠️ 页脚高度会影响画布预留（main.js 量 del 的实际高度写进 --notice-h 与
+ *    view.reserveBottom），所以这里加行数不用去别处改数字。
  */
 .notice {
   position: fixed;
@@ -406,19 +410,35 @@ body {
   bottom: 0;
   z-index: 14;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  flex-wrap: wrap;
-  gap: 2px 10px;
-  padding: 5px 12px;
+  gap: 1px;
+  padding: 5px 12px 6px;
   font-size: 11px;
-  line-height: 1.4;
+  line-height: 1.45;
   text-align: center;
   letter-spacing: 0.02em;
   color: rgba(233, 228, 214, 0.6);
   background: rgba(6, 9, 12, 0.92);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
+
+/* 两行各自内部横向排列 */
+.notice-author,
+.notice-license {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+}
+
+/* 作者行比声明行亮一点，别让它看起来像免责声明的一部分 */
+.notice-author { color: rgba(233, 228, 214, 0.72); }
+.notice-author a { font-weight: 600; }
+
+.notice-sep { color: rgba(233, 228, 214, 0.3); }
 
 .notice a {
   color: #e8c979;

@@ -21,3 +21,6 @@ art/germany/touhou_go_board-*.jar
 .idea/
 Thumbs.db
 desktop.ini
+
+# 误拖进项目目录的无关文件
+德国/
