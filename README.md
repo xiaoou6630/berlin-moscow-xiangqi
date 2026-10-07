@@ -129,7 +129,20 @@ policy using assets owned by 1939 Games. 1939 Games does not endorse or sponsor 
 本项目是**非商业**的爱好者作品：不含广告、不收费、无任何付费墙。
 象棋引擎、棋盘绘制、局域网联机均为原创实现，仅卡面作为皮肤使用。
 
-**代码**以 MIT 许可发布（见 `LICENSE`）。美术素材**不在** MIT 范围内，
-其使用遵循 1939 Games 的
-[KARDS Community License](https://support.kards.com/hc/en-us/articles/360027838532-KARDS-Community-License)。
-该许可可被 1939 Games 随时撤销；若被要求，本项目将立即下架。
+### 许可：代码与美术**分开**
+
+| 范围 | 包含什么 | 许可 |
+| --- | --- | --- |
+| **代码** | `src/` `public/src/` `server/` `tools/` `index.html` `public/styles.css` 等 | **MIT**（见 [`LICENSE`](./LICENSE)） |
+| **美术素材** | `art/` 与 `public/assets/`（卡面、头像、背景底图） | **不是 MIT**，见下 |
+
+**代码**以 MIT 许可发布，可自由使用、修改、分发。
+
+**美术素材不在 MIT 范围内**：它们来自 KARDS，版权归 1939 Games，仅依据其
+[KARDS Community License](https://support.kards.com/hc/en-us/articles/360027838532-KARDS-Community-License)
+用于这个非商业项目。该许可可被 1939 Games 随时撤销；若被要求，本项目将立即下架。
+
+> 想复用本项目**代码**的话，记得把美术素材一并换成你自己的 ——
+> 那些素材的使用权**不随 MIT 授权转移**给你。
+
+完整的许可分工与声明原文见 [`NOTICE.md`](./NOTICE.md)。
