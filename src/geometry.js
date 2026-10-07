@@ -44,9 +44,16 @@ export const RANK_GAP = 1;
  * 所以绝不能在别处再写一份（真的踩过：geometry 用 0.65 反推留白，
  * 而 theme 仍按 0.86 画牌，最外两行的牌照样伸出画布）。
  *
- * 取 0.6：牌高 0.843 格、对角半径 0.730 格，都能被下面的留白容下。
+ * 取 0.9（比原来的 0.6 大 1.5 倍）：
+ *   - 横向安全：卡宽 0.9 < 相邻路间距 1，左右**不会**重叠；
+ *     留白 MARGIN_X=0.62 > 0.9/2=0.45，最外一路的牌伸不出棋盘。
+ *   - 纵向会叠：卡高 1.264 > 相邻线间距 1，上下相邻的两个子重叠约 0.26 格
+ *     （宽屏约 19px）。这是**放大卡面的必然代价**，因为卡面比例固定、
+ *     绝不能裁剪。绘制顺序按 y 排序（靠下的画在上面），观感与卡牌游戏
+ *     "后排压前排"一致；点选用 snap 吸附到最近的交叉点，越界区域不会误选。
+ *   - 留白 MARGIN_Y 由卡高推导，会自动跟着变大，保证顶/底行的牌不伸出去。
  */
-export const CARD_WIDTH_UNITS = 0.6;
+export const CARD_WIDTH_UNITS = 0.9;
 export const CARD_ASPECT = 702 / 500;
 export const CARD_HEIGHT_UNITS = CARD_WIDTH_UNITS * CARD_ASPECT;
 /** 牌绕中心旋转时的外接圆半径（倒下动画用得到） */
@@ -157,19 +164,43 @@ export const REFERENCE_MEASURED = {
  * 计算像素布局。所有比例相对整幅宽度缩放，任意尺寸下格子的
  * 宽高比、留白比例都与规格一致。
  *
+ * ⚠️ **width/height 是"可用空间的边界框"，不是目标尺寸**：
+ *    整幅按自身宽高比等比缩放到**刚好放得进**这个框，两者都不得超出。
+ *    曾经这里只按 width 缩放、把 height 当输出（只用来反算），
+ *    在整幅比例 1.078（接近 8:9）时侥幸没露馅；
+ *    一旦比例变宽（卡面放大后留白变高），棋盘就会**高出画布一倍**
+ *    —— 顶/底行的牌直接跑出视口。现在按两个方向分别算、取小的那个。
+ *
  * @param {object} [opts]
- * @param {number} [opts.width]  整幅宽度（CSS 像素）；优先于 height
- * @param {number} [opts.height] 整幅高度（CSS 像素）
+ * @param {number} [opts.width]  可用宽度（CSS 像素）
+ * @param {number} [opts.height] 可用高度（CSS 像素）
  */
 export function computeLayout(opts = {}) {
-  let { width, height } = opts;
+  const { width: boxW, height: boxH } = opts;
 
-  if (width == null && height == null) width = 1182;
-  if (width == null) width = height / FRAME_ASPECT;
-  if (height == null) height = width * FRAME_ASPECT;
+  if (boxW == null && boxH == null) {
+    // 都没给：用参考尺寸
+    const unit0 = 1182 / FRAME_UNITS_W;
+    return layoutWithUnit(1182, 1182 * FRAME_ASPECT, unit0);
+  }
 
-  const unit = width / FRAME_UNITS_W; // 1 unit 对应多少像素
+  // 只给一边：另一边由整幅比例推出（此时就是"目标尺寸"，不会超出）
+  if (boxW == null) {
+    const w = boxH / FRAME_ASPECT;
+    return layoutWithUnit(w, boxH, w / FRAME_UNITS_W);
+  }
+  if (boxH == null) {
+    const h = boxW * FRAME_ASPECT;
+    return layoutWithUnit(boxW, h, boxW / FRAME_UNITS_W);
+  }
 
+  // 两边都给：按两个方向分别算 unit，取小的，保证整幅**放得进**边界框
+  const unit = Math.min(boxW / FRAME_UNITS_W, boxH / FRAME_UNITS_H);
+  return layoutWithUnit(FRAME_UNITS_W * unit, FRAME_UNITS_H * unit, unit);
+}
+
+/** 用给定的 unit 生成布局（整幅尺寸由 unit 推出） */
+function layoutWithUnit(width, height, unit) {
   const padX = MARGIN_X * unit;
   const padY = MARGIN_Y * unit;
 

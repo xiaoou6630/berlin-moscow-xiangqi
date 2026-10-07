@@ -111,15 +111,18 @@ export class BoardView {
     this.cardW = this.layout.filePitch * CARD_WIDTH_UNITS;
     // 整张卡面，不做任何裁剪
     this.cardH = this.cardW * CARD_RATIO;
-    // 硬约束：牌最多占画布短边的一定比例。
-    // 缩到极小窗口时，几何留白可能不够容下整张牌（比例是固定的），
-    // 这里兜底把牌整体缩小，保证"永远不伸出画布"这条铁律成立。
-    const maxCardW = Math.min(width, height) * 0.42;
-    if (this.cardW > maxCardW) {
-      const k = maxCardW / this.cardW;
-      this.cardW *= k;
-      this.cardH *= k;
-    }
+
+    /*
+     * ⚠️ 这里原本还有个"兜底上限"：牌宽不超过画布短边的 0.42 倍。
+     * 那个 0.42 是**按旧卡面比例（CARD_WIDTH_UNITS = 0.6）试出来的数字**，
+     * 不是从几何推出来的。卡面放大到 0.9 之后，它算出的上限反而**小于**
+     * 几何留白本来就容得下的尺寸 → 无谓地触发缩放 → 破坏"牌宽/牌高 =
+     * 原始比例"的关系 → 牌从画布上边伸出去 5px。
+     *
+     * 实际上这个上限是多余的：MARGIN_X / MARGIN_Y 在 geometry.js 里就是
+     * **由卡面尺寸推导**的（MARGIN ≥ 半个卡面 + 余量），并且 unit 是按真实
+     * 可用宽高算出来的，所以任何画布尺寸下牌都放得进去。删掉更安全。
+     */
   }
 
   /** 交叉点 → 画布像素 */

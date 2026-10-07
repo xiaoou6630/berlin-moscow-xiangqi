@@ -12,7 +12,7 @@
  */
 import assert from 'node:assert/strict';
 
-import { FILES, RANKS, FRAME_ASPECT, computeLayout, rotate180 } from '../src/geometry.js';
+import { FILES, RANKS, FRAME_ASPECT, computeLayout, rotate180, MARGIN_Y } from '../src/geometry.js';
 import { drawBoard } from '../src/board.js';
 import { FACTIONS, SOVIET, GERMANY, CARD_RATIO, CARD_WIDTH_UNITS, DIFFICULTY_UI } from '../public/src/theme.js';
 import { normalizeAssetPath, urlsForFactions } from '../public/src/assets.js';
@@ -206,21 +206,37 @@ check('卡牌尺寸：完整卡面（不裁剪），且能放进几何留白', (
   assert.ok(Math.abs(view.cardH - view.cardW * CARD_RATIO) < 1e-9, '卡面必须完整，不能裁剪');
 
   /*
-   * ⚠️ 这里曾经断言 "牌高/线距 ≥ 1.0"，那个假设是错的：
-   * 牌高必须 **小于一个线距**，否则：
-   *   1. 同路相邻两行的牌会叠在一起（上牌压住下牌的名称栏）
-   *   2. 最外两行的牌必然伸出棋盘留白 → 窄窗口 / 手机上溢出屏幕
-   * 所以改成断言"小于线距"，并额外验证它确实放得进几何留白。
+   * ⚠️ 这里曾经断言「牌高/线距 < 1.0」，理由是「否则同路相邻两行的牌会叠、
+   * 且最外两行会伸出留白」。**前半句对，后半句是错的**：
+   *   - MARGIN_Y 是**由卡高推导**的（= 卡高/2 + 0.06），牌只会向外伸半个卡高，
+   *     留白永远够 —— 所以 卡高 > 线距 并不会溢出。
+   *   - 它只造成**相邻两行重叠**，而这是"把卡面放大到 150%（0.6 → 0.9）"的
+   *     自觉取舍：卡面比例固定、绝不裁剪，横向 0.9 < 路距 1 所以左右不叠，
+   *     纵向 1.264 > 线距 1 所以上下叠约 0.26 格。
+   * 现在改为验证**真正的铁律**：整张牌必须落在画布内（四边都不越界）。
    */
   const ratio = view.cardH / view.layout.rankPitch;
-  assert.ok(ratio < 1.0, `牌高/线距 = ${ratio.toFixed(3)}，必须 < 1 否则最外两行会溢出`);
-  assert.ok(ratio > 0.55, `牌高/线距 = ${ratio.toFixed(3)} 过小，棋子显得稀疏`);
+  assert.ok(ratio > 1.0, `牌高/线距 = ${ratio.toFixed(3)}，当前放大设定下应当 > 1`);
+  assert.ok(ratio < 2.0, `牌高/线距 = ${ratio.toFixed(3)} 过大，相邻两行会叠得太狠`);
 
-  // 留白合计必须容得下卡面（与 geometry.js 的 MARGIN_Y 自洽）
-  const padV = view.layout.padding.top + view.layout.padding.bottom;
-  const padH = view.layout.padding.left + view.layout.padding.right;
-  assert.ok(padV >= view.cardH - 0.5, `纵向留白 ${padV.toFixed(1)}px 放不下卡高 ${view.cardH.toFixed(1)}px`);
-  assert.ok(padH >= view.cardW - 0.5, `横向留白 ${padH.toFixed(1)}px 放不下卡宽 ${view.cardW.toFixed(1)}px`);
+  const pads = view.layout.padding;
+  /*
+   * 算的是"牌伸到画布外面多少"：负数表示在画布内（留有余量），
+   * 正数才是溢出。之前我把符号写反了，正数当成溢出，导致误报。
+   */
+  const overflow = {
+    上: view.cardH / 2 - pads.top,
+    下: view.cardH / 2 - pads.bottom,
+    左: view.cardW / 2 - pads.left,
+    右: view.cardW / 2 - pads.left,
+  };
+  for (const [side, over] of Object.entries(overflow)) {
+    assert.ok(over <= 0.5, `${side}边的牌伸出画布 ${over.toFixed(1)}px`);
+  }
+  // 牌以交叉点为中心，留白至少要容下半个卡面
+  assert.ok(pads.top >= view.cardH / 2 - 0.5, `纵向留白 ${pads.top.toFixed(1)}px 容不下半个卡高`);
+  assert.ok(pads.left >= view.cardW / 2 - 0.5, `横向留白 ${pads.left.toFixed(1)}px 容不下半个卡宽`);
+  assert.ok(pads.left >= view.cardW / 2 - 0.5, `横向留白 ${pads.left.toFixed(1)}px 容不下半个卡宽`);
 });
 
 check('任何窗口尺寸下都只做等比缩放，绝不拉伸', () => {
